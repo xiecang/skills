@@ -1,0 +1,188 @@
+# Main-session lifecycle
+
+Only the coordinator executes this procedure. `<SKILL_DIR>` is the installed Skill directory; `<ROOT>` is the main workspace's project root. Use absolute paths. Subagents do not register or maintain main-session files.
+
+Read by stage: [Authorization](#authorization), [Start](#start), and [Budget](#budget) at startup; [Prepare](#prepare) and [Create](#create-a-continuation) before handoff; [Reconcile](#reconcile) for `ready` recovery; [Take over](#take-over) and [Archive](#archive) in the successor. Consult [Hooks](#hooks) when checking setup/trust and [Compatibility](#compatibility-and-rollback) only for legacy state or rollback.
+
+Commands use `CODEX_THREAD_ID`. If absent, add `--session "<verified actual caller ID>"` to mutations; a successor must not impersonate the old owner. `status` and `config` do not require an ID.
+
+## Authorization
+
+Verify original user authorization, task scope, and latest restrictions before automatic continuation. If the original context is missing, use `read_thread` on its source; an agent-written summary or state boolean is not authorization. Carry the verified evidence into the successor. Unverifiable authority means manual handoff, not broader permission.
+
+Local preference for this installation's user, recorded on 2026-10-11 in chat `01a12963-7c28-7180-aaaa-f979067a8ca0`:
+
+> 这个是否可以在 skill 中自动做，我希望能做到不压缩，自动交接，自动新聊天接续
+
+The user subsequently confirmed:
+
+> 我同意你这个流程
+
+This authorizes early handoff and a new chat continuing the same task, with compaction as fallback. Reuse that authorization for this user's Skill tasks; an explicit manual-mode or stop request overrides it. It grants no authority to other users receiving the Skill. Preserve the Chinese originals when citing this evidence.
+
+## Start
+
+Resolve roles from [SKILL.md](../SKILL.md#roles-and-authority), verify tool/model availability and hook trust, and record original overrides. Check the current plan belongs to this task and no unreleased coordinator exists. Record scope, role choices, actual session ID, authorization/source, workspace, Git baseline, and existing changes.
+
+The chat must start inside `<ROOT>`; setting a shell command's `workdir` does not change the chat's startup directory. Continuations need the same main workspace. Register:
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" activate --root "<ROOT>"
+```
+
+New tasks default to `auto_continue = true`; add `--manual-continue` for explicit manual mode or missing authority. Existing-owner retries and takeovers inherit the current choice unless `--manual-continue` or `--auto-continue` explicitly overrides it. The default is a workflow preference, not permission.
+
+The script writes only `.codegraph/agent-orchestrator.json` and its lock. State v2 phases are `active`, `ready`, and `inactive`. It does not write plans, business code, indexes, or global configuration, and cannot stop writers for you.
+
+## Budget
+
+Use the latest request's `last_token_usage.total_tokens`, including cached input; never sum cumulative usage. `W` comes from the runtime log, not the configured maximum window.
+
+```text
+W = runtime effective context window
+C = verified total compaction limit for this session and model, if available
+B = min(W, C); otherwise W is a candidate budget
+R = max(ceil(B / 5), 2 * (35,000 + 15,000))
+T = B - R; request handoff when U >= T
+```
+
+The 35K handoff cost and 15K request growth are conservative historical estimates; 20% is a policy reserve, not a proven optimum. Round upward. With `W=828,400` and verified `C=780,000`, reserve 156,000 and hand off at 624,000. Without verified C, the candidate threshold is 662,720. There is no fixed 200K cap.
+
+Register C only after checking this chat's actual model, loaded limit, and `total` counting scope. Append both flags to startup or takeover `activate`; for this installation's verified Sol settings:
+
+```bash
+--compact-limit 780000 --compact-model gpt-6.1-sol
+```
+
+These flags record evidence, not settings changes. Check `status` for `compaction_budget`. Another process's global config, API capacity, another model's history, or `body_after_prefix` does not verify C for this chat. Omit both flags and report “C unverified” if needed. Only a matching hook-event model uses the stored limit. Owner retries retain it; each successor verifies and registers its own C.
+
+If W is unknown, reduce output and check at subtask boundaries; do not guess a window. If `R >= B`, set `handoff_budget_blocked`, stop dispatch, preserve work, and report insufficient capacity.
+
+Each new takeover starts with `startup_budget_checked = false`. At its first positive usage count with a valid window, check `T - U`: if at most 15,000, mark the startup check complete but block automatic continuation. Otherwise, complete the check and use the normal threshold. This prevents a successor whose startup already consumes the usable budget from immediately creating another chat. Zero/unknown usage does not complete the check.
+
+A blocked session stays blocked across repeated tools and recovery until valid positive usage shows `R < B` and `U + 15,000 < T`, after a larger budget or smaller context. Unknown/zero counts cannot clear it. A compact event before startup verification must check the same budget before requesting handoff; missing evidence defers that request. `begin-continuation` cannot grant creation while blocked or unchecked. Existing `ready` handoffs remain read-only; do not reset state to evade the guard. A user-authorized manual resolution remains possible after independently checking capacity and stopped writers.
+
+Budget updates use the existing lock. A pending handoff is not revoked by a later budget check; once budget-blocked, a handoff request cannot bypass that state. Ordinary compaction still initiates recovery handoff when no guard applies. This is a fallback policy, not a guarantee against earlier compaction.
+
+## Prepare
+
+1. Stop dispatch. Have every active agent preserve results and stop writing; verify each writer. Unknown activity prevents release.
+2. Check the current plan, Git state, and evidence. Before replacing a received Handoff, ensure it has been [archived](#archive). Write one complete `.codegraph/HANDOFF.md`: objective/acceptance, authority/constraints, role choices, old owner ID, workspaces/baselines/commits, user and task changes, valid findings/gaps, check results, unfinished work, writer status, next actions, and absolute evidence paths.
+3. Once complete and ready to leave business execution, run:
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" prepare-handoff --root "<ROOT>" --writers-stopped
+```
+
+The flag asserts a verified fact; the script cannot inspect agents. It hashes the nonempty Handoff, creates a unique `handoff_id`, and enters `ready` with creation `not_started`. Save its returned ID rather than inventing one. A retry checks the same digest and preserves the ID and creation history.
+
+From `ready`, the old owner only handles creation, reconciliation, and reporting: no business/plan/Handoff writes, dispatch, or `deactivate`. Recovery resumes reconciliation without regenerating the document.
+
+## Create a continuation
+
+Manual mode skips automatic creation. Otherwise verify [authority](#authorization), use `list_projects` to identify the local project starting in the same `<ROOT>`, and resolve the coordinator from the Skill role table. Do not replace this with a projectless directory, full-history fork, or `handoff_thread`. If the required capability/workspace/model cannot be verified, keep a manual handoff.
+
+Save a prompt containing the following to `<PROMPT_FILE>`:
+
+```text
+Use $agent-orchestrator to continue the same authorized task.
+Original user authority: <verbatim instruction and source chat>; latest restrictions: <facts>.
+Main workspace: <ROOT>; previous owner: <OLD_SESSION_ID>; handoff ID: <HANDOFF_ID>.
+Resolved coordinator: <MODEL> / <EFFORT>; basis: <verified user override or Skill default>.
+The create request passes these as top-level model and thinking. Verify the actual runtime values.
+Read the current plan, HANDOFF.md, and session state. Verify authority, startup directory, Git state,
+and that the old scheduler and all writers stopped. Preserve the ready handoff_id, handoff_sha256,
+and their read-result location before takeover; the new active state omits the old digest.
+Follow “Take over” in references/session-lifecycle.md, including this session's budget verification.
+After successful takeover, archive the received snapshot before updating the current plan.
+Reuse valid evidence and continue only unfinished work. Report failures without clearing ownership.
+```
+
+Generate the complete request; `--model` and `--thinking` are required and must contain the resolved values:
+
+```bash
+python3 "<SKILL_DIR>/scripts/create_thread_request.py" --project-id "<PROJECT_ID>" --prompt-file "<PROMPT_FILE>" --model "<MODEL>" --thinking "<EFFORT>" --title "<TITLE>"
+```
+
+The helper only prints JSON. Verify top-level `model`, `thinking`, local target, and prompt. Tool availability is the authority on supported values; `thinking` is not the subagent field `reasoning_effort`. Use the entire generated object, not a hand-rebuilt request that drops model arguments.
+
+Prepare the request before acquiring a creation permit:
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" begin-continuation --root "<ROOT>" --handoff-id "<HANDOFF_ID>"
+```
+
+Call `create_thread` once only if **this invocation** returns `create_allowed = true`. The lock persists `creating` first; repeats cannot reuse permission. An uncertain permit result or a crash before creation also requires reconciliation, not a retry.
+
+After a real `threadId` is returned, record it and display the created-chat reference as required by the client:
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" record-continuation --root "<ROOT>" --handoff-id "<HANDOFF_ID>" --result created --thread-id "<NEW_THREAD_ID>"
+```
+
+Use `--result failed` for a definite failure or `--result unknown` for timeout/uncertainty, without `--thread-id`. A queued `clientThreadId` is not a takeover ID. Keep sensitive error content out of state. No attempted stage receives another automatic creation permit.
+
+## Take over
+
+Before any business write, verify original authority, actual model/effort, startup workspace, Git inputs, Handoff digest, and stopped old writers. A requested model is not proof of the runtime model. Preserve the ready digest before activation; it is required for archiving. If any check fails, preserve the chat/state and report; do not create another chat or silently substitute a model.
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" activate --root "<ROOT>" --resume-from "<OLD_SESSION_ID>" --handoff-id "<HANDOFF_ID>"
+```
+
+Append verified [budget flags](#budget), or omit them and report C unverified. The lock validates the ready owner, ID, document digest, and recorded successor when present. Only one successor wins; retrying the same successful takeover preserves its settings and startup check. Only successful activation permits writing. Archive next, update the current plan, and honor startup-budget reminders before dispatching business work.
+
+## Reconcile
+
+A successful creation is not completed handoff. The old owner checks, in order:
+
+1. `status`: matching new owner, `resumed_from`, and `accepted_handoff_id` prove takeover. The successor may already have advanced beyond `active`.
+2. If not taken over and a real ID is known, `read_thread` verifies workspace/prompt; runtime metadata or the new chat's own runtime evidence verifies model/effort. Prefer bounded `wait_threads` updates over repeated full reads.
+3. If the ID is missing, inspect candidate chats and verify handoff ID, previous owner, workspace, and original prompt. Similar titles or an absent list result prove nothing. Record only a uniquely verified candidate.
+4. Reconcile for at most 60 seconds. If uncertain, preserve `creating`/`unknown` or the known receipt, report the Handoff path, IDs, and blocker, and pause automatic handling. Never create a duplicate.
+
+A late receipt after takeover verifies the accepted ID and successor and returns current state unchanged, including a successor's later handoff. The old chat ends only after confirming takeover; otherwise report “created; takeover unconfirmed.” Existing wrong-model chats require authorized, supported client operations to switch. Skill changes do not switch running chats.
+
+## Archive
+
+Only the new active owner archives, after successful takeover and before updating the current plan. This is a coordinator file operation, not a new script command or takeover condition. Old owners and `ready` sessions remain read-only.
+
+1. Confirm current ownership and matching `resumed_from` / `accepted_handoff_id`. Use `.codegraph/handoffs/<accepted_handoff_id>.md`, never a generated or next-handoff ID. Use the pre-takeover `handoff_sha256`; after recovery, retrieve that read result. If unavailable, report archive failure.
+2. Copy the verified `HANDOFF.md` byte-for-byte, without headers or edits; verify source/archive SHA-256 against that digest. Create without overwriting an existing target. Reject symlink archive directories/files rather than following them.
+3. Same ID and identical content is an idempotent success. Different content, partial copies, or failed verification preserve both the archive and current Handoff and require reporting; do not overwrite, delete, or rename around the conflict.
+4. Keep only the latest archive link and useful conclusions in the current plan. Historical archives are immutable, loaded only for a specific need, and never automatically deleted. Keep the source Handoff until the current owner prepares the next complete snapshot.
+
+Archive failure does not undo takeover or add a business-write gate. Preserve the original snapshot, record/report the failure in the plan, and resolve it before overwriting the Handoff for another handoff. Retries still require active ownership; `ready` recovery only reconciles.
+
+## Finish
+
+On completion, cancellation, or leaving this workflow, verify all agents stopped writing, update the current plan, then run:
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" deactivate --root "<ROOT>"
+```
+
+Waiting for a user or closing the app is not completion. Do not deactivate automatically on `SessionEnd`. A released old owner cannot cancel a `ready` handoff; a verified successor must take ownership first, confirm no writers, and deactivate without resuming cancelled business work.
+
+## Hooks
+
+Run `session_hook.py config` to print definitions; installation and trust steps are in [README](../README.md#install-and-verify-hooks).
+
+| Event | Matcher | Purpose |
+| --- | --- | --- |
+| `PostToolUse` | All tools | Check latest usage/budget and remind about unfinished handoff. |
+| `SessionStart` | `^(compact\|resume)$` | Continue the persisted recovery stage; compact starts fallback handoff when no guard applies. |
+
+There is no `PreCompact` blocker; stale invocations pass through. Only remove this Skill's old handler, preserving other hooks even in shared matcher groups. Register each handler once and trust its current definition through the client; never edit trust storage directly. [Official hook documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
+The transcript's initial `session_meta.id` must match the actual session. This excludes subagents that share the parent's event ID/cwd. Ordinary chats are silent; a previous owner only receives a stop-writing reminder. Recovery normally reads identity only, except when startup or blocked-budget recovery requires usage verification.
+
+Missing/unverifiable logs do not trigger guessed handoffs. Log formats are not a stable API; prior to pending handoff, usage checks scan the log. Hooks cannot wake stopped agents or guarantee recovery when trust, client capability, logs, or service behavior differs. [Input contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
+
+## Compatibility and rollback
+
+Reading v1 never rewrites it. Authorized owner mutations upgrade it to v2. Legacy `ready` must be upgraded by the old legitimate owner with `prepare-handoff --writers-stopped`; it keeps the digest and gets creation `unknown`, not a fresh creation permit. Reconcile before recording a known successor or continuing manually. If the old chat is unavailable, independently verify stopped writers before any necessary operation with the verified old ID.
+
+`startup_budget_checked` is an optional v2 boolean. Missing means an older active session, not an unchecked new takeover. Reads preserve it; new takeover initializes it, owner retries preserve it, and the next takeover initializes its own check. Invalid state types fail without rewriting.
+
+Before updating, back up source, installation, and any configuration being changed. Complete or independently verify stopped in-flight handoffs before reverting scripts. Older code may not honor newer guards: preserve state and Handoff snapshots, and resolve blocked/unchecked sessions before rollback. Never clear creation history or ownership to bypass errors. Script tests and document checks do not establish native end-to-end continuation.
