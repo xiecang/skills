@@ -10,6 +10,8 @@ A Codex Skill for scoped multi-model work, independent review, evidence reuse, a
 
 Default roles and concurrency limits have one authoritative definition in [the Skill](SKILL.md#roles-and-authority). Review scope, frozen candidates, incremental rechecks, and required final checks also live there. Handoff creation and takeover are distinct; automatic continuation always requires valid original user authority.
 
+SOL coordinates, verifies critical evidence and makes acceptance/release decisions. Workers own complete execution work packages through authorized follow-through; reviewers retain independent detailed and safety review. [Execution boundaries](references/execution-boundaries.md) defines dispatch, reports, checkpoints and capability exceptions without weakening project gates.
+
 ## Validate the source
 
 From this directory:
@@ -19,6 +21,14 @@ python3 -m unittest discover -s tests
 ```
 
 The runtime and tests use Python's standard library. All test state is temporary. Run supported Python versions when changing script behavior. Discussing or maintaining this Skill does not register a business session or modify another project's state.
+
+Role behavior cases are in `tests/role_scenarios.json`; [forward-test instructions](tests/role_forward_test.md) define the independent exercise and response format without its expected decisions. The evaluator reads the current Skill and scenarios, returns action ownership/checkpoint decisions to a temporary JSON file, and binds its answers to the current policy/scenario SHA-256. Grade fresh answers with:
+
+```bash
+ORCHESTRATOR_ROLE_RESPONSES="/absolute/path/to/fresh-role-responses.json" python3 -m unittest discover -s tests
+```
+
+Without fresh responses, the eight role behavior tests are explicitly skipped; runtime unit tests alone do not establish role behavior. The grader checks decisions and execution ownership rather than matching instruction wording. Forward-testing is a maintenance check, not an extra gate on ordinary user tasks.
 
 ## Install and verify hooks
 
@@ -71,10 +81,11 @@ The native log supplies this chat's effective window, loaded `Total` compaction 
 | --- | --- |
 | `SKILL.md` | Roles, investigation, scheduling, evidence, and review rules. |
 | `references/session-lifecycle.md` | Authority, budget, state commands, continuation, archive, and recovery. |
+| `references/execution-boundaries.md` | Execution ownership, coordinator verification, checkpoints and bounded reports. |
 | `scripts/session_hook.py` | Hooks and locked, atomic session state operations. |
 | `scripts/context_budget.py` | Read-only native context accounting and freshness checks. |
 | `scripts/create_thread_request.py` | Complete coordinator request JSON; no chat creation or state mutation. |
-| `tests/` | Temporary-directory state and native accounting regression tests. |
+| `tests/` | State/native accounting regression tests and independent role behavior scenarios/grading. |
 | `agent-orchestrator.config.toml` | Optional model/window profile. |
 
 Before deployment, compare source and installed files and preserve the current baseline, including uncommitted user changes. For rollback, restore only the intended files; first resolve active handoffs and startup-budget guards as described in [Compatibility](references/session-lifecycle.md#compatibility-and-rollback). Do not overwrite state with an older snapshot or remove creation records.

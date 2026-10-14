@@ -106,6 +106,9 @@ and their read-result location before takeover; the new active state omits the o
 Follow “Take over” in references/session-lifecycle.md, including this session's budget verification.
 After successful takeover, archive the received snapshot before updating the current plan.
 Reuse valid evidence and continue only unfinished work. Report failures without clearing ownership.
+Keep goal/authority, scheduling, key verification and decisions in the coordinator. Assign unfinished
+business execution to a worker with the accepted evidence and remaining decision checkpoints;
+do not take over its build/scan/deploy/cleanup loop in this new main chat.
 ```
 
 Generate the complete request; `--model` and `--thinking` are required and must contain the resolved values:
@@ -140,7 +143,7 @@ Before any business write, verify original authority, actual model/effort, start
 python3 "<SKILL_DIR>/scripts/session_hook.py" activate --root "<ROOT>" --resume-from "<OLD_SESSION_ID>" --handoff-id "<HANDOFF_ID>"
 ```
 
-Append verified [budget flags](#budget), or omit them and report C unverified. The lock validates the ready owner, ID, document digest, and recorded successor when present. Only one successor wins; retrying the same successful takeover preserves its settings and startup check. Only successful activation permits writing. Archive next, update the current plan, and honor startup-budget reminders before dispatching business work.
+Append verified [budget flags](#budget), or omit them and obtain native evidence with `check-budget`. The lock validates the ready owner, ID, document digest, and recorded successor when present. Only one successor wins; retrying the same successful takeover preserves its settings and startup check. Only successful activation permits writing. Archive next, update the current plan, and verify startup budget before assigning unfinished execution to a worker according to [Execution boundaries](execution-boundaries.md).
 
 ## Reconcile
 
