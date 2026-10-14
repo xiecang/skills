@@ -4,7 +4,7 @@ Give an independent agent the current `SKILL.md`, `references/execution-boundari
 
 Return a JSON object with `policy_sha256` and `responses`. `responses` maps each scenario ID to exactly one answer; its `owners` object maps every listed action to `coordinator`, `worker`, `expert` or `reviewer`. Include a nonempty `rationale` explaining the independent judgment.
 
-Compute `policy_sha256` by updating one SHA-256 with each relative filename, a NUL byte, and the raw file bytes, in this order: `SKILL.md`, `references/execution-boundaries.md`, `references/session-lifecycle.md`, `tests/role_scenarios.json`. This binds answers to their actual policy/scenario inputs.
+Compute `policy_sha256` by updating one SHA-256 with each relative filename, a NUL byte, and the raw file bytes, in this order: `SKILL.md`, `references/execution-boundaries.md`, `references/session-lifecycle.md`, `references/check-evidence.md`, `tests/role_scenarios.json`. Read the check-evidence reference too. This binds answers to their actual policy/scenario inputs.
 
 Common answer fields:
 
@@ -19,5 +19,13 @@ Where applicable, also return:
 - `worker_context`: `full_main_history`, `fresh_scoped_evidence` or `reuse_old_handle`.
 - `needed_evidence`: an array describing missing evidence; identify current-candidate check/review evidence as `current_candidate_checks` / `current_candidate_review`.
 - `direct_execution_exception`: an object with a nonempty `reason` and a `scope` array of exact action IDs.
+
+Additional evidence/scheduling scenarios use these typed fields:
+
+- Boolean flags: `receipt_usable`, `must_rerun_affected_checks`, `allow_orphaned_writers`, `can_claim_interrupted_check_passed`, `must_run_final_required_gates`, `finish_or_interrupt_owned_check_before_release`, `can_accept_candidate`, `persist_required_evidence`, `rewrite_received_handoff`, `reuse_scoped_approvals`, `repeat_existing_permission_questions`, `new_behavior_needs_approval`, `may_capture_private_content`, `extend_core_exception_to_ui`, `full_history_needed`, `retain_required_evidence`.
+- `required_execution_workdir`: `candidate_worktree` or `main_checkout`.
+- `check_order`: an ordered array of the scenario's four validation action IDs.
+- `canonical_state_action`: `replace_stale_entry_from_verified_manifest`, `append_another_current_status` or `trust_latest_prose`.
+- `main_context_payload`: `bounded_indexed_summary`, `all_raw_history` or `summary_without_evidence`.
 
 Use actual JSON booleans for all decision flags, not nulls, numbers, strings or arrays. Choose values independently; the format does not supply an intended decision. Run the behavioral grader with `ORCHESTRATOR_ROLE_RESPONSES` pointing to that file. Report any failures or ambiguities; missing or stale responses cannot count as completed role validation. These cases test planning decisions, not native tool execution or production safety results.

@@ -12,6 +12,8 @@ Default roles and concurrency limits have one authoritative definition in [the S
 
 SOL coordinates, verifies critical evidence and makes acceptance/release decisions. Workers own complete execution work packages through authorized follow-through; reviewers retain independent detailed and safety review. [Execution boundaries](references/execution-boundaries.md) defines dispatch, reports, checkpoints and capability exceptions without weakening project gates.
 
+[Check evidence](references/check-evidence.md) binds actual workdirs, frozen tracked/untracked inputs and command/log receipts. Fast/focused checks and review closure precede final heavy gates where project rules permit; all final acceptance/security checks remain required. Keep one current package state, durable evidence indexes and scoped original approval/fallback conditions across handoffs.
+
 ## Validate the source
 
 From this directory:
@@ -28,7 +30,7 @@ Role behavior cases are in `tests/role_scenarios.json`; [forward-test instructio
 ORCHESTRATOR_ROLE_RESPONSES="/absolute/path/to/fresh-role-responses.json" python3 -m unittest discover -s tests
 ```
 
-Without fresh responses, the eight role behavior tests are explicitly skipped; runtime unit tests alone do not establish role behavior. The grader checks decisions and execution ownership rather than matching instruction wording. Forward-testing is a maintenance check, not an extra gate on ordinary user tasks.
+Without fresh responses, the role behavior suite is explicitly skipped; runtime unit tests alone do not establish role behavior. The grader checks decisions, scheduling and execution/evidence ownership rather than matching instruction wording. The workdir/receipt tests also run real commands in isolated temporary Git worktrees. Forward-testing is a maintenance check, not an extra gate on ordinary user tasks.
 
 ## Install and verify hooks
 
@@ -82,6 +84,8 @@ The native log supplies this chat's effective window, loaded `Total` compaction 
 | `SKILL.md` | Roles, investigation, scheduling, evidence, and review rules. |
 | `references/session-lifecycle.md` | Authority, budget, state commands, continuation, archive, and recovery. |
 | `references/execution-boundaries.md` | Execution ownership, coordinator verification, checkpoints and bounded reports. |
+| `references/check-evidence.md` | Workdir/candidate-bound checks, receipts and one current evidence entry. |
+| `scripts/candidate_check.py` | Capture inputs, run an authorized check and verify its bound receipt. |
 | `scripts/session_hook.py` | Hooks and locked, atomic session state operations. |
 | `scripts/context_budget.py` | Read-only native context accounting and freshness checks. |
 | `scripts/create_thread_request.py` | Complete coordinator request JSON; no chat creation or state mutation. |

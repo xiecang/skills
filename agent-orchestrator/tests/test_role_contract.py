@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_FILES = ("SKILL.md", "references/execution-boundaries.md",
-                "references/session-lifecycle.md", "tests/role_scenarios.json")
+                "references/session-lifecycle.md", "references/check-evidence.md",
+                "tests/role_scenarios.json")
 
 
 def policy_digest():
@@ -120,6 +121,52 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["can_proceed_now"], False)
         self.assertIs(result["requires_user_risk_acceptance"], True)
         self.assertEqual(result["reviewer_kind"], "high_risk_independent")
+
+    def test_wrong_directory_pass_cannot_satisfy_the_candidate(self):
+        result = self.answer("wrong_workdir", {"verify_workdir_and_candidate": {"worker", "coordinator"},
+            "run_affected_checks": "worker", "verify_receipt": "coordinator",
+            "decide_acceptance": "coordinator"})
+        self.assertIs(result["receipt_usable"], False)
+        self.assertIs(result["must_rerun_affected_checks"], True)
+        self.assertEqual(result["required_execution_workdir"], "candidate_worktree")
+
+    def test_heavy_checks_follow_review_closure_without_skipping_final_gates(self):
+        result = self.answer("heavy_checks", {"fast_and_focused": "worker",
+            "independent_review_closure": "reviewer", "final_required_gates": "worker",
+            "acceptance": "coordinator", "resolve_inflight_check": "worker"})
+        self.assertEqual(result["check_order"], ["fast_and_focused", "independent_review_closure",
+                                               "final_required_gates", "acceptance"])
+        self.assertIs(result["allow_orphaned_writers"], False)
+        self.assertIs(result["can_claim_interrupted_check_passed"], False)
+        self.assertIs(result["must_run_final_required_gates"], True)
+        self.assertIs(result["finish_or_interrupt_owned_check_before_release"], True)
+
+    def test_stale_current_status_needs_reconciliation_and_persistent_evidence(self):
+        result = self.answer("conflicting_state", {"reconcile_evidence": {"worker", "coordinator"},
+            "maintain_current_entry": "coordinator", "persist_evidence": "worker",
+            "verify_candidate_and_receipts": "coordinator", "prepare_handoff": "coordinator"})
+        self.assertIs(result["can_accept_candidate"], False)
+        self.assertEqual(result["canonical_state_action"], "replace_stale_entry_from_verified_manifest")
+        self.assertIs(result["persist_required_evidence"], True)
+        self.assertIs(result["rewrite_received_handoff"], False)
+
+    def test_verified_scoped_approvals_are_reused_without_authority_expansion(self):
+        result = self.answer("approved_conditions", {"verify_scoped_authority": "coordinator",
+            "choose_authorized_fallback": "coordinator", "collect_count_diagnostics": "worker",
+            "request_new_product_decision": "coordinator"})
+        self.assertIs(result["reuse_scoped_approvals"], True)
+        self.assertIs(result["repeat_existing_permission_questions"], False)
+        self.assertIs(result["new_behavior_needs_approval"], True)
+        self.assertIs(result["may_capture_private_content"], False)
+        self.assertIs(result["extend_core_exception_to_ui"], False)
+
+    def test_bounded_results_keep_complete_evidence_and_targeted_verification(self):
+        result = self.answer("bounded_delivery", {"persist_detailed_evidence": "worker",
+            "summarize_result": "worker", "verify_key_evidence": "coordinator",
+            "investigate_detailed_failure": {"worker", "expert", "reviewer"}})
+        self.assertEqual(result["main_context_payload"], "bounded_indexed_summary")
+        self.assertIs(result["full_history_needed"], False)
+        self.assertIs(result["retain_required_evidence"], True)
 
 
 class RoleGraderValidationTests(unittest.TestCase):

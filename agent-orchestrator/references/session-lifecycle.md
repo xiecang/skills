@@ -72,12 +72,14 @@ A blocked session stays blocked across repeated tools and recovery until valid p
 
 Budget updates use the existing lock. A pending handoff is not revoked by a later budget check; once budget-blocked, a handoff request cannot bypass that state. Ordinary compaction still initiates recovery handoff when no guard applies. This is a fallback policy, not a guarantee against earlier compaction.
 
+Before the hard threshold, use verified remaining budget, observed request growth and check duration to stop starting heavy gates that are unlikely to reach a useful checkpoint. Prefer finishing an owned check on frozen inputs while keeping status output bounded. If it must be interrupted, preserve its exact candidate, log, real exit/interruption and unfinished scope; it is not a pass. This scheduling guidance does not change T, permit orphaned jobs or relax the stopped-writers requirement. At T, stop new dispatch/business writes and follow Prepare.
+
 Verified incident, 2026-10-14: this installation's native row `6289369` recorded `U=780,878`, `C=780,000`, `W=828,400`, `Total`, and `token_limit_reached=true`. The same chat's rollout line 1907 reported API `last_token_usage=419,131`. Compaction followed the native 780K limit; 419K was a different counter, not an early compaction threshold. Regression fixtures retain these accounting fields, without treating this incident as a universal budget.
 
 ## Prepare
 
 1. Stop dispatch. Have every active agent preserve results and stop writing; verify each writer. Unknown activity prevents release.
-2. Check the current plan, Git state, and evidence. Before replacing a received Handoff, ensure it has been [archived](#archive). Write one complete `.codegraph/HANDOFF.md`: objective/acceptance, authority/constraints, role choices, old owner ID, workspaces/baselines/commits, user and task changes, valid findings/gaps, check results, unfinished work, writer status, next actions, and absolute evidence paths.
+2. Reconcile one current entry per package against its actual frozen candidate and verified check receipts as described in [Check evidence](check-evidence.md); persist continuity evidence in the project's approved durable location. Resolve stale/conflicting status before dependent execution. Before replacing a received Handoff, ensure it has been [archived](#archive). Generate one complete `.codegraph/HANDOFF.md` synopsis from current entries: objective/acceptance, original authority/constraints and scoped approvals/fallback conditions, role choices, old owner ID, workspaces/baselines/candidate IDs, user and task changes, valid findings/gaps, actual checks and interruptions, unfinished work, stopped writers, next actions/owners, and absolute evidence indexes. Keep detailed history in evidence files instead of copying it into multiple current-status sections.
 3. Once complete and ready to leave business execution, run:
 
 ```bash
@@ -106,6 +108,8 @@ and their read-result location before takeover; the new active state omits the o
 Follow “Take over” in references/session-lifecycle.md, including this session's budget verification.
 After successful takeover, archive the received snapshot before updating the current plan.
 Reuse valid evidence and continue only unfinished work. Report failures without clearing ownership.
+Reconcile candidate/receipt identities and scoped original approvals; preserve immutable history,
+replace stale current entries, and avoid reopening unchanged approvals or completed investigations.
 Keep goal/authority, scheduling, key verification and decisions in the coordinator. Assign unfinished
 business execution to a worker with the accepted evidence and remaining decision checkpoints;
 do not take over its build/scan/deploy/cleanup loop in this new main chat.
