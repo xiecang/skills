@@ -14,6 +14,8 @@ import sys
 import tempfile
 import uuid
 
+from context_budget import native_budget, transcript_context
+
 
 STATE = "agent-orchestrator.json"
 LOCK = ".agent-orchestrator.lock"
@@ -96,6 +98,10 @@ def read_state(root):
         if (not isinstance(settings, dict)
                 or compaction_settings(settings.get("limit"), settings.get("model")) is None):
             raise ValueError("会话的压缩预算记录无效。")
+    if "budget_evidence" in state:
+        evidence = state["budget_evidence"]
+        if not isinstance(evidence, dict) or type(evidence.get("verified")) is not bool:
+            raise ValueError("会话的原生预算证据无效。")
     if state["version"] == 2 and state["phase"] == "ready":
         handoff_id(state.get("handoff_id"))
         creation = state.get("continuation")
@@ -192,7 +198,8 @@ def activate_state(root, state, sid, auto_continue, resume_from, expected_handof
             return state
         raise ValueError("已有主会话或待接续任务；不得覆盖。先核对状态。")
     result = {"version": 2, "project_root": str(root), "session_id": sid,
-              "phase": "active", "auto_continue": True if auto_continue is None else auto_continue}
+              "phase": "active", "auto_continue": True if auto_continue is None else auto_continue,
+              "startup_budget_checked": False}
     if resume_from:
         result.update(resumed_from=resume_from, accepted_handoff_id=expected_handoff,
                       startup_budget_checked=False)
@@ -223,7 +230,8 @@ def continuation_state(root, state, sid, action, expected_handoff, result, threa
     if action == "begin-continuation":
         if not state["auto_continue"]:
             raise ValueError("当前为手动接续；不得自动创建聊天。")
-        if state.get("handoff_budget_blocked", False) or state.get("startup_budget_checked") is False:
+        if (state.get("handoff_budget_blocked", False) or state.get("startup_budget_checked") is False
+                or state.get("budget_evidence", {}).get("verified") is False):
             raise ValueError("接续预算不足或首次预算尚未核实；保留现场，不自动创建聊天。")
         allowed = creation["status"] == "not_started"
         if allowed:
@@ -301,48 +309,6 @@ def registered_session(event):
     return None
 
 
-def transcript_usage(path, sid, read_usage=True):
-    if path is None:
-        return None
-    if not isinstance(path, (str, Path)) or not str(path).strip():
-        raise ValueError("会话日志路径必须是非空路径。")
-    # shortcut: token_count 是当前本地日志格式；运行时更改格式后需更新此读取器。
-    with Path(path).open(encoding="utf-8") as stream:
-        first = json.loads(stream.readline())
-        if (not isinstance(first, dict) or first.get("type") != "session_meta"
-                or not isinstance(first.get("payload"), dict)
-                or first["payload"].get("id") != sid):
-            return None
-        if not read_usage:
-            return 0, None
-        usage = None
-        for line in stream:
-            if not line.endswith("\n"):
-                break
-            record = json.loads(line)
-            if not isinstance(record, dict):
-                raise ValueError("会话日志记录必须是 JSON 对象。")
-            payload = record.get("payload")
-            if record.get("type") != "event_msg" or not isinstance(payload, dict):
-                continue
-            if payload.get("type") != "token_count":
-                continue
-            info = payload.get("info")
-            if not isinstance(info, dict):
-                continue
-            last = info.get("last_token_usage")
-            if not isinstance(last, dict):
-                continue
-            tokens = last.get("total_tokens")
-            window = info.get("model_context_window")
-            if type(tokens) is not int or tokens < 0:
-                raise ValueError("会话日志 token 计数无效。")
-            if window is not None and (type(window) is not int or window <= 0):
-                raise ValueError("会话日志上下文窗口无效。")
-            usage = tokens, window
-        return usage or (0, None)
-
-
 def request_handoff(root, sid):
     with state_lock(root):
         state = read_state(root)
@@ -357,7 +323,8 @@ def request_handoff(root, sid):
         return state
 
 
-def set_budget_blocked(root, sid, blocked, tokens=None, threshold=None, expected_compaction=None):
+def set_budget_blocked(root, sid, blocked, tokens=None, threshold=None, expected_compaction=None,
+                       evidence=None):
     with state_lock(root):
         state = read_state(root)
         if (not state or state["session_id"] != sid or state["phase"] != "active"
@@ -367,10 +334,13 @@ def set_budget_blocked(root, sid, blocked, tokens=None, threshold=None, expected
         if state.get("compaction_budget") != expected_compaction:
             return None
         updated = dict(state)
+        if evidence is not None:
+            updated["budget_evidence"] = evidence
         startup = state.get("startup_budget_checked") is False
         if startup or state.get("handoff_budget_blocked", False):
             if tokens is not None and tokens > 0 and threshold is not None:
-                blocked = blocked or tokens + REQUEST_GROWTH >= threshold
+                if state.get("resumed_from") or state.get("handoff_budget_blocked", False):
+                    blocked = blocked or tokens + REQUEST_GROWTH >= threshold
                 if startup:
                     updated["startup_budget_checked"] = True
             else:
@@ -409,7 +379,9 @@ def recovery_context(root, state, sid):
     if state["phase"] == "ready":
         creation = state["continuation"] if state["version"] == 2 else {"status": "unknown"}
         mode = "自动接续" if state["auto_continue"] else "手动接续，不自动创建聊天"
-        if state.get("handoff_budget_blocked", False) or state.get("startup_budget_checked") is False:
+        if state["auto_continue"] and (state.get("handoff_budget_blocked", False)
+                or state.get("startup_budget_checked") is False
+                or state.get("budget_evidence", {}).get("verified") is False):
             mode = "预算不足或未核实，不自动创建聊天"
         return ("agent-orchestrator：旧主会话已释放，" + mode + "；创建阶段=" + creation["status"]
                 + "。读取 references/session-lifecycle.md，只核对创建和接管结果；不重写 HANDOFF.md，"
@@ -424,8 +396,8 @@ def hook_output(event):
     if not isinstance(event, dict):
         raise ValueError("Hook 输入必须是 JSON 对象。")
     name = event.get("hook_event_name")
-    if (name not in {"SessionStart", "PostToolUse"}
-            or (name == "SessionStart" and event.get("source") not in {"compact", "resume"})):
+    if (name not in {"SessionStart", "PostToolUse", "UserPromptSubmit", "PreCompact"}
+            or (name == "SessionStart" and event.get("source") not in {"startup", "compact", "resume"})):
         return None
     registered = registered_session(event)
     if registered is None:
@@ -434,36 +406,46 @@ def hook_output(event):
     sid = event["session_id"]
     pending = (state["session_id"] != sid or state["phase"] == "ready"
                or state.get("handoff_requested", False))
-    compact_budget_check = (name == "SessionStart" and event.get("source") == "compact"
-                            and not pending and (state.get("startup_budget_checked") is False
-                                                 or state.get("handoff_budget_blocked", False)))
-    usage = transcript_usage(event.get("transcript_path"), sid,
-                             read_usage=(name == "PostToolUse" and not pending) or compact_budget_check)
-    if usage is None:
+    compact = name == "SessionStart" and event.get("source") == "compact"
+    budget_check = not pending and (not compact or state.get("startup_budget_checked") is False
+                                   or state.get("handoff_budget_blocked", False))
+    context = transcript_context(event.get("transcript_path"), sid,
+                                 read_usage=budget_check or name == "PreCompact")
+    if context is None:
         return None
-    if (name == "SessionStart" and not pending and not compact_budget_check and state["session_id"] == sid
-            and state.get("handoff_budget_blocked", False)):
-        return {"hookSpecificOutput": {"hookEventName": name, "additionalContext":
-                "agent-orchestrator：此前交接预算不足。保存现场并核对模型窗口，不自动创建接续聊天；"
-                "工具后取得足够预算时才解除此限制，窗口未知时继续保留。"}}
+    model = event.get("model")
+    if budget_check and event.get("turn_id") not in (None, context["turn_id"]):
+        model = None
+    if name == "PreCompact":
+        sample = native_budget(event.get("transcript_path"), sid, context, model)
+        detail = (f"原生计数 {sample['tokens']}，实际压缩线 {sample['limit']}，"
+                  f"API 单次用量 {sample['api_tokens']}" if sample else "原生压缩预算未核实")
+        return {"systemMessage": "agent-orchestrator：压缩前观测（"
+                + str(event.get("trigger", "unknown")) + "）：" + detail
+                + "；本 hook 不阻断压缩，压缩后按恢复交接处理。"}
     if pending:
         return {"hookSpecificOutput": {"hookEventName": name,
                                        "additionalContext": recovery_context(root, state, sid)}}
-    if name == "SessionStart" and event.get("source") == "resume":
-        return None
     reason = "主会话已意外压缩，进入恢复交接"
-    if name == "PostToolUse" or compact_budget_check:
-        tokens, window = usage
-        if window is None:
+    if budget_check:
+        sample = native_budget(event.get("transcript_path"), sid, context, model)
+        if sample is None:
+            set_budget_blocked(root, sid, False, expected_compaction=state.get("compaction_budget"),
+                               evidence={"verified": False})
             return {"hookSpecificOutput": {"hookEventName": name, "additionalContext":
-                    "agent-orchestrator：运行时窗口未知，无法计算交接阈值。降低读取输出，在子项边界核对；"
-                    "不猜测窗口或沿用固定 20 万交接线。"}}
+                    "agent-orchestrator：原生计数或运行时窗口未知，实际压缩预算未核实。"
+                    "先停止新派发，执行一次小输出预算检查；不要用 API 单次或累计用量代替。"
+                    "日志缺失、过期或口径不兼容时报告限制，不推算固定交接线。"}}
+        tokens, window = sample["tokens"], sample["window"]
         verified = state.get("compaction_budget") if state["version"] == 2 else None
-        compact_limit = (verified["limit"] if verified and verified["model"] == event.get("model") else None)
+        compact_limit = sample["limit"]
+        if verified and verified["model"] == sample["model"]:
+            compact_limit = min(compact_limit, verified["limit"])
         budget, reserve = handoff_budget(window, compact_limit)
         threshold = budget - reserve
         state = set_budget_blocked(root, sid, reserve >= budget, tokens=tokens, threshold=threshold,
-                                   expected_compaction=state.get("compaction_budget"))
+                                   expected_compaction=state.get("compaction_budget"),
+                                   evidence=dict(sample, verified=True, threshold=threshold))
         if state is None:
             return None
         if state.get("handoff_budget_blocked", False):
@@ -475,12 +457,11 @@ def hook_output(event):
             return {"hookSpecificOutput": {"hookEventName": name, "additionalContext":
                     "agent-orchestrator：接续首次预算尚未核实。等待有效窗口和正数计数，再判断是否交接；"
                     "不自动创建下一聊天。"}}
-        if name == "PostToolUse" and tokens < threshold:
+        if not compact and tokens < threshold:
             return None
-        if name == "PostToolUse":
-            source = "已核实的 total 压缩线" if compact_limit is not None else "运行时窗口候选值"
-            reason = (f"当前上下文计数 {tokens}，达到提前交接线 {threshold}"
-                      f"（预算 {budget}，预留 {reserve}；依据：{source}）")
+        if not compact:
+            reason = (f"原生上下文计数 {tokens}，达到提前交接线 {threshold}"
+                      f"（预算 {budget}，预留 {reserve}；API 单次用量 {sample['api_tokens']}）")
     state = request_handoff(root, sid)
     if state is None:
         return None
@@ -492,8 +473,10 @@ def configuration():
     command = shlex.join([sys.executable, str(Path(__file__).resolve()), "hook"])
     groups = []
     for name, matcher, label in [
-        ("SessionStart", "^(compact|resume)$", "agent-orchestrator：恢复与交接接续"),
+        ("SessionStart", "^(startup|compact|resume)$", "agent-orchestrator：恢复与交接接续"),
         ("PostToolUse", "", "agent-orchestrator：提前自动交接"),
+        ("UserPromptSubmit", "", "agent-orchestrator：新输入预算检查"),
+        ("PreCompact", "^(auto|manual)$", "agent-orchestrator：压缩前观测"),
     ]:
         groups.append(f"[[hooks.{name}]]\nmatcher = {json.dumps(matcher)}\n\n"
                       f"[[hooks.{name}.hooks]]\ntype = \"command\"\ncommand = "
@@ -507,12 +490,15 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("config", help="只打印 hook 配置，不修改全局文件")
     sub.add_parser("hook", help="读取一次 Codex hook 的 stdin")
-    for action in ("activate", "prepare-handoff", "deactivate", "status",
+    for action in ("activate", "prepare-handoff", "deactivate", "status", "check-budget",
                    "begin-continuation", "record-continuation"):
         command = sub.add_parser(action)
         command.add_argument("--root", required=True, help="主协调者工作区的项目根目录")
         if action != "status":
             command.add_argument("--session", default=os.environ.get("CODEX_THREAD_ID"))
+        if action == "check-budget":
+            command.add_argument("--transcript-path", required=True)
+            command.add_argument("--model", required=True)
         if action == "activate":
             mode = command.add_mutually_exclusive_group()
             mode.add_argument("--auto-continue", action="store_true", default=None,
@@ -543,7 +529,11 @@ def main():
                 print(json.dumps(output, ensure_ascii=False))
             return 0
         root = project_root(args.root)
-        if args.action == "status":
+        if args.action == "check-budget":
+            result = hook_output({"session_id": session_id(args.session), "cwd": str(root),
+                                  "hook_event_name": "PostToolUse", "model": args.model,
+                                  "transcript_path": args.transcript_path})
+        elif args.action == "status":
             result = read_state(root) or {"phase": "unregistered"}
         else:
             result = transition(root, session_id(args.session), args.action,

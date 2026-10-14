@@ -34,35 +34,45 @@ New tasks default to `auto_continue = true`; add `--manual-continue` for explici
 
 The script writes only `.codegraph/agent-orchestrator.json` and its lock. State v2 phases are `active`, `ready`, and `inactive`. It does not write plans, business code, indexes, or global configuration, and cannot stop writers for you.
 
+Before dispatch or business writes, run `check-budget` with this chat's verified model and rollout path, then inspect `status` for `startup_budget_checked` and `budget_evidence`. This also applies when an existing chat is reactivated after planning; its history remains in context. A small-output tool may be needed to produce the first native sample.
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" check-budget --root "<ROOT>" --model "<ACTUAL_MODEL>" --transcript-path "<ACTUAL_ROLLOUT_PATH>"
+```
+
 ## Budget
 
-Use the latest request's `last_token_usage.total_tokens`, including cached input; never sum cumulative usage. `W` comes from the runtime log, not the configured maximum window.
+Use the native runtime's **active-context accounting**, not `last_token_usage.total_tokens` or cumulative API usage. The hook reads the matching chat's `post sampling token usage` sample from `$CODEX_HOME/logs_2.sqlite` in read-only mode, locating it beside the rollout's `sessions` directory. The sample must match the actual model and current turn, follow the latest turn/compaction epoch, and remain current relative to the rollout's latest usage record.
+
+For supported `Total` scope, `U = total_usage_tokens = auto_compact_scope_tokens`, `W = full_context_window_limit`, and `C = auto_compact_scope_limit`. These are loaded runtime values; configuration files alone do not prove them. State `budget_evidence` records the counters, window, limit, database path and row ID. `api_tokens` is diagnostic only.
 
 ```text
 W = runtime effective context window
-C = verified total compaction limit for this session and model, if available
-B = min(W, C); otherwise W is a candidate budget
+C = native loaded total compaction limit for this session and model
+B = min(W, C, any matching manually verified lower cap)
 R = max(ceil(B / 5), 2 * (35,000 + 15,000))
 T = B - R; request handoff when U >= T
 ```
 
-The 35K handoff cost and 15K request growth are conservative historical estimates; 20% is a policy reserve, not a proven optimum. Round upward. With `W=828,400` and verified `C=780,000`, reserve 156,000 and hand off at 624,000. Without verified C, the candidate threshold is 662,720. There is no fixed 200K cap.
+The 35K handoff cost and 15K request growth are conservative historical estimates; 20% is a policy reserve, not a proven optimum. Round upward. With native `W=828,400` and `C=780,000`, reserve 156,000 and hand off at 624,000 **native context tokens**. There is no fixed 200K or 319K cap.
 
-Register C only after checking this chat's actual model, loaded limit, and `total` counting scope. Append both flags to startup or takeover `activate`; for this installation's verified Sol settings:
+Native telemetry supplies C automatically. Optional flags on startup or takeover `activate` can record a separately verified lower cap; they never expand the native budget:
 
 ```bash
---compact-limit 780000 --compact-model gpt-6.1-sol
+--compact-limit <VERIFIED_LIMIT> --compact-model <ACTUAL_MODEL>
 ```
 
-These flags record evidence, not settings changes. Check `status` for `compaction_budget`. Another process's global config, API capacity, another model's history, or `body_after_prefix` does not verify C for this chat. Omit both flags and report “C unverified” if needed. Only a matching hook-event model uses the stored limit. Owner retries retain it; each successor verifies and registers its own C.
+These flags record evidence, not settings changes. Check `status` for `compaction_budget`. Another process's config, API capacity, another model's history, or `body_after_prefix` does not verify this chat's budget. Owner retries retain the lower cap; successors verify their own runtime budget.
 
-If W is unknown, reduce output and check at subtask boundaries; do not guess a window. If `R >= B`, set `handoff_budget_blocked`, stop dispatch, preserve work, and report insufficient capacity.
+Missing, stale, mismatched or incompatible native telemetry yields `budget_evidence.verified = false`. Stop new dispatch, reduce output, attempt a small-output budget check, and report the limitation if it remains unavailable. API counts cannot substitute for native accounting; no guessed threshold or automatic creation is allowed. `BodyAfterPrefix` currently requires manual verification rather than silently mixing counting scopes. If `R >= B`, set `handoff_budget_blocked`, preserve work, and report insufficient capacity.
 
-Each new takeover starts with `startup_budget_checked = false`. At its first positive usage count with a valid window, check `T - U`: if at most 15,000, mark the startup check complete but block automatic continuation. Otherwise, complete the check and use the normal threshold. This prevents a successor whose startup already consumes the usable budget from immediately creating another chat. Zero/unknown usage does not complete the check.
+Every new activation, reactivation and takeover starts with `startup_budget_checked = false`; owner retries preserve the check. A positive, verified native sample completes it. Initial/reactivated chats use the normal threshold so long existing history can be handed off. For a successor, `T - U <= 15,000` instead blocks automatic continuation, preventing a startup loop. Zero/unknown counts do not complete the check.
 
 A blocked session stays blocked across repeated tools and recovery until valid positive usage shows `R < B` and `U + 15,000 < T`, after a larger budget or smaller context. Unknown/zero counts cannot clear it. A compact event before startup verification must check the same budget before requesting handoff; missing evidence defers that request. `begin-continuation` cannot grant creation while blocked or unchecked. Existing `ready` handoffs remain read-only; do not reset state to evade the guard. A user-authorized manual resolution remains possible after independently checking capacity and stopped writers.
 
 Budget updates use the existing lock. A pending handoff is not revoked by a later budget check; once budget-blocked, a handoff request cannot bypass that state. Ordinary compaction still initiates recovery handoff when no guard applies. This is a fallback policy, not a guarantee against earlier compaction.
+
+Verified incident, 2026-10-14: this installation's native row `6289369` recorded `U=780,878`, `C=780,000`, `W=828,400`, `Total`, and `token_limit_reached=true`. The same chat's rollout line 1907 reported API `last_token_usage=419,131`. Compaction followed the native 780K limit; 419K was a different counter, not an early compaction threshold. Regression fixtures retain these accounting fields, without treating this incident as a universal budget.
 
 ## Prepare
 
@@ -170,19 +180,21 @@ Run `session_hook.py config` to print definitions; installation and trust steps 
 
 | Event | Matcher | Purpose |
 | --- | --- | --- |
-| `PostToolUse` | All tools | Check latest usage/budget and remind about unfinished handoff. |
-| `SessionStart` | `^(compact\|resume)$` | Continue the persisted recovery stage; compact starts fallback handoff when no guard applies. |
+| `PostToolUse` | All tools | Check native budget and remind about unfinished handoff. |
+| `SessionStart` | `^(startup\|compact\|resume)$` | Check startup/resume budget; compact starts fallback recovery when no guard applies. |
+| `UserPromptSubmit` | All prompts | Recheck budget when the user continues an existing chat. |
+| `PreCompact` | `^(auto\|manual)$` | Report both counters and actual limit; observe without blocking or mutating ownership. |
 
-There is no `PreCompact` blocker; stale invocations pass through. Only remove this Skill's old handler, preserving other hooks even in shared matcher groups. Register each handler once and trust its current definition through the client; never edit trust storage directly. [Official hook documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+Current [official hooks](https://learn.chatgpt.com/docs/hooks#precompact) support `PreCompact` with `continue: false`, which stops the turn before compaction. This Skill emits only observational `systemMessage`: blocking would also prevent the coordinator's next model request, and hooks cannot create the continuation themselves. Enable a blocker only after verifying an authorized recovery path in that client; keep post-compaction recovery. Replace only this Skill's obsolete handler, preserving unrelated hooks and shared groups. Register each handler once and trust its current definition through the client; never edit trust storage directly.
 
 The transcript's initial `session_meta.id` must match the actual session. This excludes subagents that share the parent's event ID/cwd. Ordinary chats are silent; a previous owner only receives a stop-writing reminder. Recovery normally reads identity only, except when startup or blocked-budget recovery requires usage verification.
 
-Missing/unverifiable logs do not trigger guessed handoffs. Log formats are not a stable API; prior to pending handoff, usage checks scan the log. Hooks cannot wake stopped agents or guarantee recovery when trust, client capability, logs, or service behavior differs. [Input contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
+Missing/unverifiable logs do not trigger guessed handoffs. Rollout and native database formats are not stable APIs; revalidate them on client upgrades. Recovery normally checks identity only; ordinary budget checks scan rollout metadata and query one native sample. Hooks cannot wake stopped agents or guarantee recovery when trust, client capability, logs, or service behavior differs. [Input contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
 
 ## Compatibility and rollback
 
 Reading v1 never rewrites it. Authorized owner mutations upgrade it to v2. Legacy `ready` must be upgraded by the old legitimate owner with `prepare-handoff --writers-stopped`; it keeps the digest and gets creation `unknown`, not a fresh creation permit. Reconcile before recording a known successor or continuing manually. If the old chat is unavailable, independently verify stopped writers before any necessary operation with the verified old ID.
 
-`startup_budget_checked` is an optional v2 boolean. Missing means an older active session, not an unchecked new takeover. Reads preserve it; new takeover initializes it, owner retries preserve it, and the next takeover initializes its own check. Invalid state types fail without rewriting.
+`startup_budget_checked` is an optional v2 boolean. Missing means an older active session. Reads preserve it; new activation/reactivation/takeover initializes it, owner retries preserve it. `budget_evidence` is optional; an explicitly unverified record blocks creation even after an earlier successful startup check. Invalid state types fail without rewriting.
 
 Before updating, back up source, installation, and any configuration being changed. Complete or independently verify stopped in-flight handoffs before reverting scripts. Older code may not honor newer guards: preserve state and Handoff snapshots, and resolve blocked/unchecked sessions before rollback. Never clear creation history or ownership to bypass errors. Script tests and document checks do not establish native end-to-end continuation.

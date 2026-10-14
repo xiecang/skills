@@ -11,8 +11,11 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+from budget_fixture import write_native_log
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "session_hook.py"
+sys.path.insert(0, str(SCRIPT.parent))
 DEFAULT_TRANSCRIPT = object()
 
 
@@ -41,7 +44,7 @@ class SessionHookTests(unittest.TestCase):
         payload = {"session_id": sid, "cwd": str(cwd or self.root),
                    "hook_event_name": event, "source": source, "trigger": trigger, "model": model}
         if transcript is DEFAULT_TRANSCRIPT:
-            transcript = self.transcript(0, sid=sid)
+            transcript = self.transcript(30_000, sid=sid)
         if transcript is not None:
             payload["transcript_path"] = str(transcript)
         result = subprocess.run([sys.executable, str(SCRIPT), "hook"],
@@ -51,6 +54,7 @@ class SessionHookTests(unittest.TestCase):
 
     def ready(self):
         self.call("activate", "main-a", "--auto-continue")
+        self.hook(event="PostToolUse", transcript=self.transcript(30_000))
         handoff = self.root / ".codegraph" / "HANDOFF.md"
         handoff.write_text("Goal: continue task. Writers: stopped.\n", encoding="utf-8")
         self.call("prepare-handoff", "main-a", "--writers-stopped")
@@ -71,15 +75,20 @@ class SessionHookTests(unittest.TestCase):
         return self.state_path.read_bytes()
 
     def transcript(self, tokens, window=828_400, sid="main-a"):
-        path = Path(self.temp.name) / "rollout.jsonl"
+        home = Path(self.temp.name)
+        (home / "sessions").mkdir(exist_ok=True)
+        path = home / "sessions" / "rollout.jsonl"
         records = [
             {"type": "session_meta", "payload": {"id": sid}},
+            {"type": "turn_context", "timestamp": "2026-10-14T02:13:20Z", "payload": {
+                "turn_id": "test-turn", "model": "gpt-6.1-sol"}},
             {"type": "event_msg", "payload": {"type": "token_count", "info": {
                 "last_token_usage": {"total_tokens": tokens},
                 "total_token_usage": {"total_tokens": 50_000_000},
                 "model_context_window": window}}},
         ]
         path.write_text("".join(json.dumps(record) + "\n" for record in records))
+        write_native_log(home, sid, tokens, window)
         return path
 
     def test_default_auto_continuation_and_explicit_manual_mode(self):
@@ -143,10 +152,10 @@ class SessionHookTests(unittest.TestCase):
 
     def test_compaction_limit_is_ignored_after_model_change(self):
         self.call("activate", "main-a", "--compact-limit", "500000", "--compact-model", "gpt-6.1-sol")
-        self.assertEqual(self.hook(event="PostToolUse", transcript=self.transcript(400_000),
-                                  model="gpt-6-astra").stdout, "")
-        self.assertEqual(self.hook(event="PostToolUse", transcript=self.transcript(400_000),
-                                  model=None).stdout, "")
+        for model in ("gpt-6-astra", None):
+            self.assertIn("预算未核实", self.hook(event="PostToolUse",
+                          transcript=self.transcript(400_000), model=model).stdout)
+        self.assertFalse(self.call("status").get("handoff_requested", False))
 
     def test_missing_window_does_not_guess_or_trigger_creation(self):
         self.call("activate")
@@ -178,6 +187,7 @@ class SessionHookTests(unittest.TestCase):
 
     def test_compaction_and_budget_checks_cannot_set_contradictory_flags(self):
         self.call("activate")
+        self.hook(event="PostToolUse", transcript=self.transcript(30_000))
         spec = importlib.util.spec_from_file_location("hook_under_test", SCRIPT)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -406,14 +416,83 @@ class SessionHookTests(unittest.TestCase):
         self.assertIn("手动接续", context["hookSpecificOutput"]["additionalContext"])
         self.assertFalse(self.call("status")["auto_continue"])
 
-    def test_precompact_never_blocks_even_with_stale_configuration(self):
+    def test_native_counter_triggers_handoff_when_api_reports_only_419k(self):
+        self.call("activate")
+        transcript = self.transcript(419_131)
+        write_native_log(Path(self.temp.name), "main-a", 778_590, limit=780_000)
+        result = self.hook(event="PostToolUse", transcript=transcript)
+        self.assertIn("提前交接线 624000", result.stdout)
+        evidence = self.call("status")["budget_evidence"]
+        self.assertEqual(evidence["tokens"], 778_590)
+        self.assertEqual(evidence["api_tokens"], 419_131)
+        self.assertEqual(evidence["limit"], 780_000)
+        self.assertTrue(self.call("status")["handoff_requested"])
+
+    def test_missing_native_log_cannot_complete_startup_or_grant_creation(self):
+        self.call("activate")
+        transcript = self.transcript(700_000)
+        (Path(self.temp.name) / "logs_2.sqlite").unlink()
+        self.assertIn("预算未核实", self.hook(event="PostToolUse", transcript=transcript).stdout)
+        state = self.call("status")
+        self.assertFalse(state["startup_budget_checked"])
+        self.assertFalse(state["budget_evidence"]["verified"])
+        self.assertFalse(state.get("handoff_requested", False))
+        (self.root / ".codegraph" / "HANDOFF.md").write_text("Manual recovery.\n")
+        self.call("prepare-handoff", "main-a", "--writers-stopped")
+        self.continuation("begin-continuation", ok=False)
+
+    def test_unknown_budget_after_positive_check_still_blocks_creation(self):
+        self.ready()
+        state = self.call("status")
+        state["budget_evidence"] = {"verified": False}
+        self.state_path.write_text(json.dumps(state))
+        self.continuation("begin-continuation", ok=False)
+
+    def test_inactive_chat_reactivation_checks_existing_native_context(self):
+        self.call("activate")
+        self.hook(event="PostToolUse", transcript=self.transcript(30_000))
+        self.call("deactivate")
+        self.assertFalse(self.call("activate")["startup_budget_checked"])
+        transcript = self.transcript(319_000)
+        write_native_log(Path(self.temp.name), "main-a", 625_000, limit=780_000)
+        self.assertIn("提前交接线 624000", self.hook(source="resume", transcript=transcript).stdout)
+        self.assertTrue(self.call("status")["startup_budget_checked"])
+
+    def test_user_prompt_checks_native_budget_and_check_command_uses_same_path(self):
+        self.call("activate")
+        transcript = self.transcript(5_000)
+        write_native_log(Path(self.temp.name), "main-a", 650_000, limit=780_000)
+        self.assertIn("提前交接线", self.hook(event="UserPromptSubmit", transcript=transcript).stdout)
+        result = self.call("check-budget", "main-a", "--transcript-path", str(transcript),
+                           "--model", "gpt-6.1-sol")
+        self.assertIn("交接仍待完成", result["hookSpecificOutput"]["additionalContext"])
+
+    def test_precompact_observation_reports_actual_counters_without_requesting_handoff(self):
+        self.call("activate")
+        transcript = self.transcript(419_131)
+        write_native_log(Path(self.temp.name), "main-a", 780_878, limit=780_000)
+        before = self.state_path.read_bytes()
+        output = json.loads(self.hook(event="PreCompact", transcript=transcript).stdout)
+        self.assertIn("原生计数 780878", output["systemMessage"])
+        self.assertIn("API 单次用量 419131", output["systemMessage"])
+        self.assertNotIn("continue", output)
+        self.assertEqual(self.state_path.read_bytes(), before)
+        self.hook(event="PostToolUse", transcript=transcript)
+        before = self.state_path.read_bytes()
+        output = json.loads(self.hook(event="PreCompact", transcript=transcript).stdout)
+        self.assertIn("原生计数 780878", output["systemMessage"])
+        self.assertEqual(self.state_path.read_bytes(), before)
+
+    def test_precompact_observes_without_blocking_or_changing_owner_state(self):
         transcript = self.transcript(10)
         self.assertEqual(self.hook(event="PreCompact", transcript=transcript).stdout, "")
         self.call("activate")
         before = self.state_path.read_bytes()
-        self.assertEqual(self.hook(event="PreCompact", transcript=transcript).stdout, "")
+        output = json.loads(self.hook(event="PreCompact", transcript=transcript).stdout)
+        self.assertIn("systemMessage", output)
+        self.assertNotIn("continue", output)
         self.assertEqual(self.state_path.read_bytes(), before)
-        self.assertEqual(self.hook(event="PreCompact", transcript=transcript, trigger="manual").stdout, "")
+        self.assertIn("manual", self.hook(event="PreCompact", transcript=transcript, trigger="manual").stdout)
         self.call("deactivate")
         self.assertEqual(self.hook(event="PreCompact", transcript=transcript).stdout, "")
 
@@ -439,6 +518,7 @@ class SessionHookTests(unittest.TestCase):
 
     def test_recovery_does_not_parse_body_of_large_or_damaged_log(self):
         self.call("activate")
+        self.hook(event="PostToolUse", transcript=self.transcript(30_000))
         transcript = self.transcript(10)
         with transcript.open("a") as stream:
             stream.write("damaged log record\n")
@@ -599,11 +679,13 @@ class SessionHookTests(unittest.TestCase):
         installed.mkdir()
         copied = installed / SCRIPT.name
         shutil.copy2(SCRIPT, copied)
+        shutil.copy2(SCRIPT.parent / "context_budget.py", installed / "context_budget.py")
         config = subprocess.run([sys.executable, str(copied), "config"],
                                 text=True, capture_output=True, check=True).stdout
-        self.assertNotIn("PreCompact", config)
-        self.assertIn("^(compact|resume)$", config)
-        self.assertEqual(config.count("statusMessage = "), 2)
+        self.assertIn("PreCompact", config)
+        self.assertIn("UserPromptSubmit", config)
+        self.assertIn("^(startup|compact|resume)$", config)
+        self.assertEqual(config.count("statusMessage = "), 4)
         label = next(line for line in config.splitlines() if line.startswith("statusMessage = "))
         self.assertIn("agent-orchestrator", json.loads(label.split(" = ", 1)[1]))
         line = next(line for line in config.splitlines() if line.startswith("command = "))

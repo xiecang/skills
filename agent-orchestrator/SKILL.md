@@ -44,7 +44,7 @@ Plan subtasks with stable IDs, deliverables, permitted files/interfaces, depende
 
 Only the coordinator dispatches agents and maintains the main workspace's `.codegraph/plan.md`. It holds current goals, authorization, role choices, decisions, investigations, dependencies, and subtask status. Replace superseded state instead of appending competing “latest” sections. Subagents neither delegate further nor maintain duplicate plans.
 
-Before work, record the workspace, branch, HEAD, and existing staged, unstaged, and untracked changes. A new worktree does not carry uncommitted inputs automatically. Follow [Start](references/session-lifecycle.md#start) for registration; do not overwrite another task's files or CodeGraph indexes.
+Before work, record the workspace, branch, HEAD, and existing staged, unstaged, and untracked changes. A new worktree does not carry uncommitted inputs automatically. Follow [Start](references/session-lifecycle.md#start) for registration and native budget verification before dispatch or business writes, including reactivation in an existing chat; do not overwrite another task's files or CodeGraph indexes.
 
 - Run at most **2 subagents concurrently** by default; allow **3** only with independent tasks, isolated workspaces, and no resource contention, recording the rationale. Respect a lower runtime limit. Experts and reviewers count; the coordinator does not. Queue excess work and treat unknown activity as occupying a slot. This is not a lifetime creation limit.
 - Parallel implementation uses isolated workspaces. In a shared workspace, serialize writes, review, and commits; read-only investigation may use available slots.
@@ -86,7 +86,7 @@ Assign one worker to integrate in dependency order. Run project checks on the in
 | Recheck | Original findings, fixes, and newly affected scope. |
 | Summarize / hand off | Valid conclusions, remaining work, results, and evidence indexes; not all chat history, archives, or logs. |
 
-Reuse unchanged material already in context. Filter before emitting tool output: return relevant search locations and complete code sections; save long command output to logs with the real exit status. Show up to 20 lines on success or 80 initially on failure, then inspect relevant errors. Default to about 4,000 output tokens, splitting when needed. Truncation is not complete evidence and must not hide required scope.
+Reuse unchanged material already in context. Filter before emitting tool output: return relevant search locations and complete code sections; save long command output to logs with the real exit status. Show up to 20 lines on success or 80 initially on failure, then inspect relevant errors. Default to about 4,000 output tokens for the **combined batch**, including agent/chat results; filter or split before returning large histories. Truncation is not complete evidence and must not hide required scope.
 
 Bind check evidence to actual inputs, relevant configuration/environment, command, result, and log. HEAD alone does not identify dirty or untracked inputs; use content hashes. Invalidate affected evidence when inputs change, without restarting unrelated work. Never relabel an old failure or an unrun check as passed.
 
