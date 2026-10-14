@@ -169,6 +169,45 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["retain_required_evidence"], True)
 
 
+    def test_definite_preflight_rejection_has_one_evidenced_retry_and_runtime_verification(self):
+        result = self.answer("preflight_retry", {
+            **{action: "coordinator" for action in ("verify_authority_and_reconcile", "resolve_capability",
+               "record_retry_evidence", "acquire_retry_permit", "verify_successor_runtime")},
+            "continue_business_execution": "worker"})
+        self.assertIs(result["allow_retry"], True)
+        self.assertIs(type(result["additional_attempt_limit"]), int)
+        self.assertEqual(result["additional_attempt_limit"], 1)
+        self.assertIs(result["preserve_attempt_receipts"], True)
+        self.assertIs(result["use_verified_matching_client_defaults"], True)
+        self.assertIs(result["verify_actual_successor_runtime"], True)
+        self.assertIs(result["silently_change_model_or_effort"], False)
+
+    def test_unknown_creation_remains_reconciliation_only_after_renewed_user_instruction(self):
+        result = self.answer("unknown_retry", {action: "coordinator" for action in
+            ("reconcile_existing_creation", "preserve_ready_state", "decide_manual_resolution")})
+        self.assertIs(result["allow_retry"], False)
+        self.assertIs(result["renewed_instruction_proves_noncreation"], False)
+        self.assertIs(result["reset_ready_or_attempt_history"], False)
+
+    def test_stage_mapping_keeps_source_and_delivery_requirements_at_their_required_checkpoints(self):
+        result = self.answer("stage_gate_scope", {"verify_stage_mapping": "coordinator",
+            "review_source": "reviewer", "accept_source": "coordinator", "commit_source": "worker",
+            "prepare_artifacts": "worker", "decide_delivery": "coordinator"})
+        self.assertIs(result["can_accept_source"], True)
+        self.assertIs(result["can_deliver_now"], False)
+        self.assertIs(result["retain_future_delivery_gates"], True)
+        self.assertIs(result["repeat_full_unchanged_source_review"], False)
+
+    def test_last_verified_budget_is_diagnostic_only_until_current_sample_recovers(self):
+        result = self.answer("unverified_budget_history", {"diagnose_and_refresh_budget": "coordinator",
+            "decide_new_dispatch": "coordinator", "preserve_owned_execution": "worker"})
+        self.assertIs(result["suspend_new_dispatch"], True)
+        self.assertIs(result["allow_automatic_creation"], False)
+        self.assertIs(result["use_history_as_current_capacity"], False)
+        self.assertIs(result["preserve_last_verified_history"], True)
+        self.assertIs(result["relax_native_freshness_checks"], False)
+
+
 class RoleGraderValidationTests(unittest.TestCase):
     def grade_release(self, answer):
         grader = RoleContractTests("test_complete_release_stays_with_worker_and_blocked_gate_holds")

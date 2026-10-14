@@ -86,6 +86,19 @@ class ContextBudgetTests(unittest.TestCase):
             conn.execute("CREATE TABLE changed_schema (id INTEGER)")
         self.assertIsNone(self.sample())
 
+    def test_diagnostics_explain_failure_without_returning_native_body(self):
+        diagnostics = {}
+        context = transcript_context(self.log, "owner")
+        context["usage_at"] = "2026-10-14T02:14:20Z"
+        self.assertIsNone(native_budget(self.log, "owner", context, "gpt-6.1-sol", diagnostics))
+        self.assertEqual(diagnostics["reason"], "sample_before_latest_usage")
+        self.assertLess(diagnostics["sampled_at"], diagnostics["usage_at"])
+        self.assertNotIn("feedback_log_body", diagnostics)
+        self.db.unlink()
+        self.assertIsNone(native_budget(self.log, "owner", context, "gpt-6.1-sol", diagnostics))
+        self.assertEqual(diagnostics["reason"], "native_database_missing")
+        self.assertNotIn("row_id", diagnostics)
+
     def test_invalid_native_fields_and_unzoned_epoch_are_unverified(self):
         for body in ("post sampling token usage total_usage_tokens=-1", "secret raw malformed log"):
             with closing(sqlite3.connect(self.db)) as conn, conn:

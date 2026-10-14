@@ -38,6 +38,14 @@ Verify pre-commit receipts while their frozen HEAD is still current, then record
 
 Interrupt cleanup waits for the owned process group, not just its leader, and escalates to SIGKILL after the grace period. A remaining/unknown group sets `process_group_stopped=false`; wrapper termination alone is not proof that handoff is safe. A leader that exits while its descendants remain also yields an interrupted, invalid receipt. Caller verification of detached/other writers remains mandatory.
 
+## Stage gates
+
+Record each package's project-required gates by stage: source acceptance/commit, integration, artifact/deployment preparation, and live delivery/runtime acceptance. Each gate has its original requirement/source, exact inputs, evidence status and decision owner. This is a mapping of existing requirements, not permission to reduce them.
+
+Accept source work only after its required checks and independent review close. A deployment-only builder receipt, protected native interaction or live trial remains mandatory at that later checkpoint; it blocks source acceptance only if the project explicitly requires it there. Incomplete contracts and baseline failures remain blockers at their required stage unless the human grants an applicable scoped exception. Preserve the exact exception and remaining debt; source acceptance cannot authorize deployment with unsatisfied delivery gates.
+
+Carry this mapping through handoff. Reuse a valid independent full-review plus affected-increment closure chain on unchanged inputs; neither a new coordinator nor a missing later-stage receipt requires repeating a complete source review. Resolve actual evidence gaps with the existing owner before adding checks or requesting approval.
+
 ## Keep one current evidence entry
 
 The current plan has one entry per package: workspace, current candidate manifest/digest, stage, valid/failed/interrupted/unrun checks with receipt paths, review/finding status, scoped decisions and next action/owner. Replace superseded entries instead of appending a competing current-status correction. Keep raw logs, inventories and detailed diagnosis with the worker/reviewer evidence; send SOL a bounded summary plus absolute indexes.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print a complete create_thread request with an explicitly resolved coordinator."""
+"""Print a create_thread request for a resolved, runtime-verified coordinator."""
 
 import argparse
 import json
@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--thinking", required=True,
                         choices=("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"))
     parser.add_argument("--title")
+    parser.add_argument("--use-verified-client-defaults", action="store_true",
+                        help="仅在客户端默认模型/effort已核实匹配上述解析值、且工具要求省略覆盖时使用")
     args = parser.parse_args()
     try:
         if not args.project_id.strip() or args.project_id != args.project_id.strip():
@@ -30,9 +32,13 @@ def main():
         prompt = args.prompt_file.read_text(encoding="utf-8")
         if not prompt.strip():
             raise ValueError("接续提示不能为空。")
-        request = {"model": args.model, "thinking": args.thinking,
-                   "target": {"type": "project", "projectId": args.project_id,
+        request = {"target": {"type": "project", "projectId": args.project_id,
                               "environment": {"type": "local"}}, "prompt": prompt}
+        if args.use_verified_client_defaults:
+            request["prompt"] += ("\nExpected coordinator runtime (verify before takeover/business execution): "
+                                  + args.model + " / " + args.thinking + ".\n")
+        else:
+            request.update(model=args.model, thinking=args.thinking)
         if args.title is not None:
             request["title"] = args.title
         print(json.dumps(request, ensure_ascii=False, indent=2))

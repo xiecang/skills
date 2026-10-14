@@ -89,5 +89,55 @@
     "facts": "The worker has complete raw logs, inventories and manifests for a frozen candidate. The coordinator needs exact identity, check/review status, unresolved decisions and the next owner/action. No conflict currently requires reading all raw output. Mandatory acceptance checks and private-data limits remain in force.",
     "actions": ["persist_detailed_evidence", "summarize_result", "verify_key_evidence", "investigate_detailed_failure"],
     "question": "Assign responsibilities and state what enters the main context. Must every raw history be replayed or required evidence discarded to keep the summary small?"
+  },
+  {
+    "id": "preflight_retry",
+    "task": "Resume an authorized automatic continuation after the creation client rejected model/effort validation before creating any chat.",
+    "facts": "The raw tool result proves preflight rejection without side effects. Original same-task creation authority remains valid. Reconciliation confirms no successor; no attempt was ever unknown and no retry has happened. The tool permits overrides only for an explicit human model choice; none exists. Actual configured client model and effort have independently been verified to match the resolved coordinator. A corrected complete request and durable evidence are available.",
+    "actions": [
+      "verify_authority_and_reconcile",
+      "resolve_capability",
+      "record_retry_evidence",
+      "acquire_retry_permit",
+      "verify_successor_runtime",
+      "continue_business_execution"
+    ],
+    "question": "Assign responsibilities and decide if retry is possible, how many additional permits are allowed, whether matching client defaults may be used, and which runtime/attempt safeguards remain."
+  },
+  {
+    "id": "unknown_retry",
+    "task": "Continue after a timed-out create request; the human says to open a new window and finish.",
+    "facts": "The client may have created a chat but returned no real ID. No uniquely verified successor or definite preflight rejection is available. Current continuation status is unknown. Native capacity and original task authority otherwise remain valid.",
+    "actions": [
+      "reconcile_existing_creation",
+      "preserve_ready_state",
+      "decide_manual_resolution"
+    ],
+    "question": "Assign responsibilities. Does the renewed instruction prove no chat was created? May another creation attempt proceed or ready history be reset?"
+  },
+  {
+    "id": "stage_gate_scope",
+    "task": "Accept reviewed Core source and later deliver the native application.",
+    "facts": "The project requires source checks and independent review before source commit; all passed on unchanged frozen inputs. A valid full-review plus increment-closure chain exists. A normal-builder artifact receipt and a live trial are explicitly required at delivery, and are currently missing. The project does not require those delivery-only gates before source commit. No waiver exists for deployment.",
+    "actions": [
+      "verify_stage_mapping",
+      "review_source",
+      "accept_source",
+      "commit_source",
+      "prepare_artifacts",
+      "decide_delivery"
+    ],
+    "question": "Assign responsibilities. Can source acceptance proceed? Can delivery proceed? Must the complete unchanged source review be repeated, and which future gates remain?"
+  },
+  {
+    "id": "unverified_budget_history",
+    "task": "Decide whether to dispatch fresh work after the native budget sample becomes stale.",
+    "facts": "The owner completed startup earlier. The last verified sample was safely below its then-current threshold, but current evidence is verified=false with reason sample_before_latest_usage. No fresh matching native sample is available. An already-owned worker package may still be running within its original scope.",
+    "actions": [
+      "diagnose_and_refresh_budget",
+      "decide_new_dispatch",
+      "preserve_owned_execution"
+    ],
+    "question": "Assign responsibilities. Can historical evidence stand in for current capacity or permit new dispatch/automatic creation? What should happen to diagnostic history and freshness checks?"
   }
 ]

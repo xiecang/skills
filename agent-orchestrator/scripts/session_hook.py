@@ -206,7 +206,9 @@ def activate_state(root, state, sid, auto_continue, resume_from, expected_handof
     return result
 
 
-def continuation_state(root, state, sid, action, expected_handoff, result, thread_id):
+def continuation_state(root, state, sid, action, expected_handoff, result, thread_id,
+                       attempt_id=None, retry_evidence=None, preflight_rejected=False,
+                       no_successor=False):
     handoff_id(expected_handoff)
     if action == "record-continuation":
         if result not in {"created", "failed", "unknown"}:
@@ -227,39 +229,62 @@ def continuation_state(root, state, sid, action, expected_handoff, result, threa
     if state.get("handoff_sha256") != handoff_digest(root):
         raise ValueError("释放后 HANDOFF.md 已改变；先核对交接，不创建或登记接续。")
     creation = state["continuation"]
-    if action == "begin-continuation":
+    if action in {"begin-continuation", "retry-continuation"}:
         if not state["auto_continue"]:
             raise ValueError("当前为手动接续；不得自动创建聊天。")
         if (state.get("handoff_budget_blocked", False) or state.get("startup_budget_checked") is False
                 or state.get("budget_evidence", {}).get("verified") is False):
             raise ValueError("接续预算不足或首次预算尚未核实；保留现场，不自动创建聊天。")
+        if action == "retry-continuation":
+            if (creation["status"] != "failed" or creation.get("uncertain", False)
+                    or "previous_attempt" in creation or not preflight_rejected or not no_successor
+                    or attempt_id != creation.get("attempt_id")):
+                raise ValueError("仅确定未创建的预检拒绝可核实后重试一次；未知、已创建或已重试不得重发。")
+            evidence = Path(retry_evidence or "")
+            if not evidence.is_absolute() or not evidence.is_file():
+                raise ValueError("需要绝对路径的重试证据文件：原始拒绝、有效授权、能力修正和无接续聊天核验。")
+            data = evidence.read_bytes()
+            if not data.strip():
+                raise ValueError("重试证据不能为空。")
+            receipt = {"status": "creating", "attempt_id": str(uuid.uuid4()),
+                       "previous_attempt": creation,
+                       "retry_evidence": {"path": str(evidence.resolve()),
+                                          "sha256": hashlib.sha256(data).hexdigest()}}
+            return dict(state, continuation=receipt), True
         allowed = creation["status"] == "not_started"
         if allowed:
-            state = dict(state, continuation={"status": "creating"})
+            state = dict(state, continuation={"status": "creating", "attempt_id": str(uuid.uuid4())})
         return state, allowed
+    if ((attempt_id is not None and attempt_id != creation.get("attempt_id"))
+            or ("previous_attempt" in creation and attempt_id != creation.get("attempt_id"))):
+        raise ValueError("创建回执的 attempt-id 不匹配；不得改写另一创建尝试。")
     if creation["status"] == "not_started":
         raise ValueError("尚未登记创建尝试；先运行 begin-continuation。")
     if creation["status"] == "created":
         if result == "created" and thread_id != creation["thread_id"]:
             raise ValueError("创建回执中的聊天 ID 冲突；保留原记录。")
         return state, False
-    receipt = {"status": result}
+    receipt = dict(creation, status=result)
+    if result == "unknown" or creation["status"] == "unknown":
+        receipt["uncertain"] = True
     if result == "created":
         receipt["thread_id"] = thread_id
     return dict(state, continuation=receipt), False
 
 
 def transition(root, sid, action, auto_continue=None, resume_from=None, writers_stopped=False,
-               expected_handoff=None, result=None, thread_id=None, compact_limit=None, compact_model=None):
+               expected_handoff=None, result=None, thread_id=None, compact_limit=None, compact_model=None,
+               attempt_id=None, retry_evidence=None, preflight_rejected=False, no_successor=False):
     settings = compaction_settings(compact_limit, compact_model)
     if settings is not None and action != "activate":
         raise ValueError("压缩预算只能由当前持有者在 activate 时登记。")
     with state_lock(root):
         state = read_state(root)
         before = state
-        if action in {"begin-continuation", "record-continuation"}:
+        if action in {"begin-continuation", "record-continuation", "retry-continuation"}:
             state, allowed = continuation_state(root, state, sid, action, expected_handoff,
-                                               result, thread_id)
+                                               result, thread_id, attempt_id, retry_evidence,
+                                               preflight_rejected, no_successor)
         elif action == "activate":
             if expected_handoff is not None and not resume_from:
                 raise ValueError("--handoff-id 必须与 --resume-from 一起使用。")
@@ -288,7 +313,7 @@ def transition(root, sid, action, auto_continue=None, resume_from=None, writers_
                 raise ValueError("未知状态操作。")
         if state != before:
             write_state(root, state)
-        if action == "begin-continuation":
+        if action in {"begin-continuation", "retry-continuation"}:
             return {"create_allowed": allowed, "state": state}
         return state
 
@@ -335,6 +360,11 @@ def set_budget_blocked(root, sid, blocked, tokens=None, threshold=None, expected
             return None
         updated = dict(state)
         if evidence is not None:
+            if evidence.get("verified") is False:
+                previous = state.get("budget_evidence", {})
+                historical = previous if previous.get("verified") is True else previous.get("last_verified")
+                if historical:
+                    evidence = dict(evidence, last_verified=historical)
             updated["budget_evidence"] = evidence
         startup = state.get("startup_budget_checked") is False
         if startup or state.get("handoff_budget_blocked", False):
@@ -359,7 +389,7 @@ def set_budget_blocked(root, sid, blocked, tokens=None, threshold=None, expected
 def handoff_context(root, state, reason):
     authorization = ("已登记自动接续。核对本 Skill 中用户原始授权和当前任务约束，"
                      "交接完成后先生成完整创建请求并登记尝试，仅在 create_allowed=true 时调用 create_thread；"
-                     "顶层 model/thinking 必须使用本 Skill 解析出的 coordinator 映射，不能沿用客户端默认。"
+                     "按工具约束传入解析出的 coordinator 映射；仅可使用已核实匹配的客户端默认。"
                      "携带授权和交接 ID。"
                      if state["auto_continue"] else "当前登记为手动接续；保存交接文档后等待用户，不自动创建会话。")
     return (
@@ -386,7 +416,8 @@ def recovery_context(root, state, sid):
         return ("agent-orchestrator：旧主会话已释放，" + mode + "；创建阶段=" + creation["status"]
                 + "。读取 references/session-lifecycle.md，只核对创建和接管结果；不重写 HANDOFF.md，"
                 "不恢复业务写入。创建前必须经 begin-continuation；结果未知先对账，仍不明确就暂停，不重试创建。"
-                "create_thread 顶层 model/thinking 使用已解析的 coordinator 映射。"
+                "确定未创建的预检拒绝仅可按生命周期规则核实后重试一次；未知结果不得重试。"
+                "模型参数遵守工具约束，接管仍须核实实际 coordinator 映射。"
                 + location)
     return ("agent-orchestrator：交接仍待完成。停止派发和业务改动，按 references/session-lifecycle.md "
             "核实旧写入停止、保存交接并接续；不要把提醒已发出当作交接完成。" + location)
@@ -428,12 +459,15 @@ def hook_output(event):
                                        "additionalContext": recovery_context(root, state, sid)}}
     reason = "主会话已意外压缩，进入恢复交接"
     if budget_check:
-        sample = native_budget(event.get("transcript_path"), sid, context, model)
+        diagnostics = {}
+        sample = native_budget(event.get("transcript_path"), sid, context, model, diagnostics)
         if sample is None:
             set_budget_blocked(root, sid, False, expected_compaction=state.get("compaction_budget"),
-                               evidence={"verified": False})
+                               evidence=dict(diagnostics, verified=False))
             return {"hookSpecificOutput": {"hookEventName": name, "additionalContext":
                     "agent-orchestrator：原生计数或运行时窗口未知，实际压缩预算未核实。"
+                    "原因=" + diagnostics.get("reason", "native_sample_unavailable") + "。"
+                    "status 中 last_verified 仅为历史诊断，不能恢复当前预算许可。"
                     "先停止新派发，执行一次小输出预算检查；不要用 API 单次或累计用量代替。"
                     "日志缺失、过期或口径不兼容时报告限制，不推算固定交接线。"}}
         tokens, window = sample["tokens"], sample["window"]
@@ -491,7 +525,7 @@ def main():
     sub.add_parser("config", help="只打印 hook 配置，不修改全局文件")
     sub.add_parser("hook", help="读取一次 Codex hook 的 stdin")
     for action in ("activate", "prepare-handoff", "deactivate", "status", "check-budget",
-                   "begin-continuation", "record-continuation"):
+                   "begin-continuation", "record-continuation", "retry-continuation"):
         command = sub.add_parser(action)
         command.add_argument("--root", required=True, help="主协调者工作区的项目根目录")
         if action != "status":
@@ -510,12 +544,18 @@ def main():
             command.add_argument("--compact-limit", type=int,
                                  help="仅登记已核实对此会话生效的 total 压缩阈值；不修改 Codex 配置")
             command.add_argument("--compact-model", help="上述已核实阈值对应的实际模型 ID")
-        if action in {"activate", "begin-continuation", "record-continuation"}:
+        if action in {"activate", "begin-continuation", "record-continuation", "retry-continuation"}:
             command.add_argument("--handoff-id", required=action != "activate",
                                  help="prepare-handoff 返回的唯一交接 ID；接管时必须携带")
         if action == "record-continuation":
             command.add_argument("--result", required=True, choices=("created", "failed", "unknown"))
             command.add_argument("--thread-id", help="客户端实际返回或核实的接续聊天 ID")
+        if action in {"record-continuation", "retry-continuation"}:
+            command.add_argument("--attempt-id", help="创建许可返回的尝试 ID；重试后的回执必须携带")
+        if action == "retry-continuation":
+            command.add_argument("--retry-evidence", required=True)
+            command.add_argument("--preflight-rejected", action="store_true")
+            command.add_argument("--no-successor", action="store_true")
         if action == "prepare-handoff":
             command.add_argument("--writers-stopped", action="store_true")
     args = parser.parse_args()
@@ -544,7 +584,11 @@ def main():
                                 getattr(args, "result", None),
                                 getattr(args, "thread_id", None),
                                 getattr(args, "compact_limit", None),
-                                getattr(args, "compact_model", None))
+                                getattr(args, "compact_model", None),
+                                attempt_id=getattr(args, "attempt_id", None),
+                                retry_evidence=getattr(args, "retry_evidence", None),
+                                preflight_rejected=getattr(args, "preflight_rejected", False),
+                                no_successor=getattr(args, "no_successor", False))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, KeyError) as error:

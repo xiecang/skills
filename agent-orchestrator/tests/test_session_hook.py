@@ -1,6 +1,7 @@
 """Run with python3; all state changes stay in temporary directories."""
 
 import json
+import hashlib
 import importlib.util
 from pathlib import Path
 import shutil
@@ -448,6 +449,41 @@ class SessionHookTests(unittest.TestCase):
         self.state_path.write_text(json.dumps(state))
         self.continuation("begin-continuation", ok=False)
 
+    def test_stale_budget_keeps_reason_and_only_one_historical_verified_sample(self):
+        self.call("activate")
+        transcript = self.transcript(30_000)
+        self.hook(event="PostToolUse", transcript=transcript)
+        verified = self.call("status")["budget_evidence"]
+        rows = [json.loads(line) for line in transcript.read_text().splitlines()]
+        rows[-1]["timestamp"] = "2026-10-14T02:13:30Z"
+        transcript.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        for _ in range(2):
+            self.hook(event="PostToolUse", transcript=transcript)
+            evidence = self.call("status")["budget_evidence"]
+            self.assertIs(evidence["verified"], False)
+            self.assertEqual(evidence["reason"], "sample_before_latest_usage")
+            self.assertEqual(evidence["last_verified"], verified)
+            self.assertNotIn("last_verified", evidence["last_verified"])
+            self.assertLess(evidence["sampled_at"], evidence["usage_at"])
+        (self.root / ".codegraph/HANDOFF.md").write_text("Stopped writers; historical count is not current")
+        self.call("prepare-handoff", "main-a", "--writers-stopped")
+        self.continuation("begin-continuation", ok=False)
+
+    def test_fresh_native_sample_restores_current_evidence_without_history_fallback(self):
+        self.call("activate")
+        transcript = self.transcript(30_000)
+        self.hook(event="PostToolUse", transcript=transcript)
+        (Path(self.temp.name) / "logs_2.sqlite").unlink()
+        self.hook(event="PostToolUse", transcript=transcript)
+        evidence = self.call("status")["budget_evidence"]
+        self.assertEqual(evidence["reason"], "native_database_missing")
+        self.assertEqual(evidence["last_verified"]["tokens"], 30_000)
+        self.hook(event="PostToolUse", transcript=self.transcript(40_000))
+        evidence = self.call("status")["budget_evidence"]
+        self.assertIs(evidence["verified"], True)
+        self.assertEqual(evidence["tokens"], 40_000)
+        self.assertNotIn("last_verified", evidence)
+
     def test_inactive_chat_reactivation_checks_existing_native_context(self):
         self.call("activate")
         self.hook(event="PostToolUse", transcript=self.transcript(30_000))
@@ -778,6 +814,111 @@ class SessionHookTests(unittest.TestCase):
             self.assertEqual(state["continuation"]["status"], result)
             self.assertFalse(self.continuation("begin-continuation")["create_allowed"])
 
+    def failed_attempt(self):
+        self.ready()
+        attempt = self.continuation("begin-continuation")["state"]["continuation"]["attempt_id"]
+        self.continuation("record-continuation", "main-a", "--result", "failed", "--attempt-id", attempt)
+        evidence = self.root / "retry-evidence.md"
+        evidence.write_text("Definite preflight rejection; original authority verified; corrected request; no successor.\n")
+        return attempt, ["--attempt-id", attempt, "--preflight-rejected", "--no-successor",
+                         "--retry-evidence", str(evidence)]
+
+    def test_definite_preflight_retry_preserves_attempt_and_evidence_and_is_bounded(self):
+        attempt, args = self.failed_attempt()
+        result = self.continuation("retry-continuation", "main-a", *args)
+        self.assertIs(result["create_allowed"], True)
+        receipt = result["state"]["continuation"]
+        self.assertNotEqual(receipt["attempt_id"], attempt)
+        self.assertEqual(receipt["previous_attempt"]["status"], "failed")
+        self.assertEqual(receipt["previous_attempt"]["attempt_id"], attempt)
+        self.assertEqual(receipt["retry_evidence"]["sha256"],
+                         hashlib.sha256(Path(args[-1]).read_bytes()).hexdigest())
+        self.continuation("record-continuation", "main-a", "--result", "failed",
+                          "--attempt-id", receipt["attempt_id"])
+        args[1] = receipt["attempt_id"]
+        self.continuation("retry-continuation", "main-a", *args, ok=False)
+        self.assertFalse(self.continuation("begin-continuation")["create_allowed"])
+
+    def test_retry_requires_verified_assertions_and_nonempty_evidence(self):
+        attempt, args = self.failed_attempt()
+        before = self.state_path.read_bytes()
+        for omitted in ("--preflight-rejected", "--no-successor"):
+            self.continuation("retry-continuation", "main-a", *[a for a in args if a != omitted], ok=False)
+            self.assertEqual(self.state_path.read_bytes(), before)
+        Path(args[-1]).write_text("")
+        self.continuation("retry-continuation", "main-a", *args, ok=False)
+        self.assertEqual(self.state_path.read_bytes(), before)
+
+    def test_legacy_definite_failed_attempt_can_use_evidenced_retry_without_inventing_an_id(self):
+        attempt, args = self.failed_attempt()
+        state = self.call("status")
+        state["continuation"].pop("attempt_id")
+        self.state_path.write_text(json.dumps(state))
+        retried = self.continuation("retry-continuation", "main-a", *args[2:])
+        self.assertIs(retried["create_allowed"], True)
+        receipt = retried["state"]["continuation"]
+        self.assertNotIn("attempt_id", receipt["previous_attempt"])
+        self.assertEqual(str(uuid.UUID(receipt["attempt_id"])), receipt["attempt_id"])
+
+    def test_unknown_creation_cannot_be_relabelled_to_unlock_retry(self):
+        attempt, args = self.failed_attempt()
+        self.continuation("record-continuation", "main-a", "--result", "unknown", "--attempt-id", attempt)
+        self.continuation("retry-continuation", "main-a", *args, ok=False)
+        self.continuation("record-continuation", "main-a", "--result", "failed", "--attempt-id", attempt)
+        self.continuation("retry-continuation", "main-a", *args, ok=False)
+
+    def test_legacy_unknown_and_v1_upgrade_remain_ineligible_after_failed_relabel(self):
+        attempt, args = self.failed_attempt()
+        before = self.call("status")
+        for version in (1, 2):
+            with self.subTest(version=version):
+                state = dict(before, continuation={"status": "unknown"})
+                self.state_path.write_text(json.dumps(state))
+                if version == 1:
+                    self.legacy_state("ready")
+                    self.call("prepare-handoff", "main-a", "--writers-stopped")
+                state = self.continuation("record-continuation", "main-a", "--result", "failed")
+                self.assertIs(state["continuation"]["uncertain"], True)
+                self.continuation("retry-continuation", "main-a", *args[2:], ok=False)
+
+    def test_old_receipts_cannot_overwrite_retry_and_new_receipt_binds_takeover(self):
+        old, args = self.failed_attempt()
+        new = self.continuation("retry-continuation", "main-a", *args)["state"]["continuation"]["attempt_id"]
+        before = self.state_path.read_bytes()
+        for identity in ([], ["--attempt-id", old]):
+            self.continuation("record-continuation", "main-a", "--result", "failed", *identity, ok=False)
+            self.assertEqual(self.state_path.read_bytes(), before)
+        self.continuation("record-continuation", "main-a", "--result", "created", "--thread-id", "main-b",
+                          "--attempt-id", new)
+        self.call("activate", "main-b", "--resume-from", "main-a")
+        self.continuation("retry-continuation", "main-a", *args, ok=False)
+        self.assertEqual(self.call("status")["session_id"], "main-b")
+
+    def test_retry_keeps_owner_digest_manual_and_budget_guards(self):
+        attempt, args = self.failed_attempt()
+        before = self.state_path.read_bytes()
+        self.continuation("retry-continuation", "other", *args, ok=False)
+        for changes in ({"auto_continue": False}, {"startup_budget_checked": False},
+                        {"handoff_budget_blocked": True}, {"budget_evidence": {"verified": False}}):
+            state = json.loads(before); state.update(changes)
+            self.state_path.write_text(json.dumps(state))
+            self.continuation("retry-continuation", "main-a", *args, ok=False)
+        self.state_path.write_bytes(before)
+        (self.root / ".codegraph/HANDOFF.md").write_text("Changed after ready")
+        self.continuation("retry-continuation", "main-a", *args, ok=False)
+
+    def test_concurrent_retry_requests_issue_only_one_new_permit(self):
+        attempt, extra = self.failed_attempt()
+        args = [sys.executable, str(SCRIPT), "retry-continuation", "--root", str(self.root),
+                "--session", "main-a", "--handoff-id", self.call("status")["handoff_id"], *extra]
+        processes = [subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                     for _ in range(2)]
+        outputs = [p.communicate(timeout=10) for p in processes]
+        granted = [json.loads(out)["create_allowed"] for p, (out, err) in zip(processes, outputs)
+                   if p.returncode == 0]
+        self.assertEqual(granted.count(True), 1)
+        self.assertEqual(sorted(p.returncode for p in processes), [0, 1])
+
     def test_created_receipt_binds_successor_and_cannot_be_downgraded(self):
         self.ready()
         self.continuation("begin-continuation")
@@ -927,6 +1068,17 @@ class ContinuationRequestTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual((payload["model"], payload["thinking"]), ("gpt-6-astra", "xhigh"))
         self.assertNotIn("title", payload)
+
+    def test_verified_matching_client_defaults_omit_overrides_but_preserve_runtime_expectation(self):
+        result = self.request("--model", "gpt-6.1-sol", "--thinking", "xhigh",
+                              "--use-verified-client-defaults")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertNotIn("model", payload)
+        self.assertNotIn("thinking", payload)
+        self.assertTrue(payload["prompt"].startswith(self.prompt.read_text()))
+        self.assertIn("gpt-6.1-sol / xhigh", payload["prompt"])
+        self.assertEqual(payload["target"]["projectId"], "project-a")
 
     def test_omitted_model_or_effort_cannot_produce_a_request(self):
         for extra in ((), ("--model", "gpt-6.1-sol"), ("--thinking", "xhigh")):

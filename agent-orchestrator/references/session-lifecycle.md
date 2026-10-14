@@ -66,6 +66,8 @@ These flags record evidence, not settings changes. Check `status` for `compactio
 
 Missing, stale, mismatched or incompatible native telemetry yields `budget_evidence.verified = false`. Stop new dispatch, reduce output, attempt a small-output budget check, and report the limitation if it remains unavailable. API counts cannot substitute for native accounting; no guessed threshold or automatic creation is allowed. `BodyAfterPrefix` currently requires manual verification rather than silently mixing counting scopes. If `R >= B`, set `handoff_budget_blocked`, preserve work, and report insufficient capacity.
 
+Unverified evidence includes a stable `reason` and available sample/usage timestamps. `last_verified` retains only the last verified sample, without nesting failure history. It is historical diagnosis, never current capacity evidence: it cannot complete startup, clear a block, permit dispatch/creation or supply a fallback threshold. A fresh matching native sample restores current evidence under the unchanged freshness/scope checks.
+
 Every new activation, reactivation and takeover starts with `startup_budget_checked = false`; owner retries preserve the check. A positive, verified native sample completes it. Initial/reactivated chats use the normal threshold so long existing history can be handed off. For a successor, `T - U <= 15,000` instead blocks automatic continuation, preventing a startup loop. Zero/unknown counts do not complete the check.
 
 A blocked session stays blocked across repeated tools and recovery until valid positive usage shows `R < B` and `U + 15,000 < T`, after a larger budget or smaller context. Unknown/zero counts cannot clear it. A compact event before startup verification must check the same budget before requesting handoff; missing evidence defers that request. `begin-continuation` cannot grant creation while blocked or unchecked. Existing `ready` handoffs remain read-only; do not reset state to evade the guard. A user-authorized manual resolution remains possible after independently checking capacity and stopped writers.
@@ -121,7 +123,7 @@ Generate the complete request; `--model` and `--thinking` are required and must 
 python3 "<SKILL_DIR>/scripts/create_thread_request.py" --project-id "<PROJECT_ID>" --prompt-file "<PROMPT_FILE>" --model "<MODEL>" --thinking "<EFFORT>" --title "<TITLE>"
 ```
 
-The helper only prints JSON. Verify top-level `model`, `thinking`, local target, and prompt. Tool availability is the authority on supported values; `thinking` is not the subagent field `reasoning_effort`. Use the entire generated object, not a hand-rebuilt request that drops model arguments.
+The helper only prints JSON. Verify top-level `model`, `thinking`, local target, and prompt against the actual tool's constraints; `thinking` is not the subagent field `reasoning_effort`. Tool constraints take precedence over this helper. If overrides are permitted only for a specific human model choice, do not treat the Skill's defaults as that choice. When the actual configured client model AND effort are independently verified to match the resolved coordinator, use `--use-verified-client-defaults` to omit both overrides and include the expected runtime in the prompt. Otherwise preserve a manual handoff until the mismatch is resolved; no guessed defaults, silent effort reduction or model substitution. The successor must still verify its actual model/effort before takeover/business execution. Use the entire generated request.
 
 Prepare the request before acquiring a creation permit:
 
@@ -131,13 +133,25 @@ python3 "<SKILL_DIR>/scripts/session_hook.py" begin-continuation --root "<ROOT>"
 
 Call `create_thread` once only if **this invocation** returns `create_allowed = true`. The lock persists `creating` first; repeats cannot reuse permission. An uncertain permit result or a crash before creation also requires reconciliation, not a retry.
 
-After a real `threadId` is returned, record it and display the created-chat reference as required by the client:
+Save the permit's `continuation.attempt_id`. After a real `threadId` is returned, record it and display the created-chat reference as required by the client:
 
 ```bash
-python3 "<SKILL_DIR>/scripts/session_hook.py" record-continuation --root "<ROOT>" --handoff-id "<HANDOFF_ID>" --result created --thread-id "<NEW_THREAD_ID>"
+python3 "<SKILL_DIR>/scripts/session_hook.py" record-continuation --root "<ROOT>" --handoff-id "<HANDOFF_ID>" --attempt-id "<ATTEMPT_ID>" --result created --thread-id "<NEW_THREAD_ID>"
 ```
 
-Use `--result failed` for a definite failure or `--result unknown` for timeout/uncertainty, without `--thread-id`. A queued `clientThreadId` is not a takeover ID. Keep sensitive error content out of state. No attempted stage receives another automatic creation permit.
+Use `--result failed` for a definite failure or `--result unknown` for timeout/uncertainty, without `--thread-id`, retaining the attempt ID. A queued `clientThreadId` is not a takeover ID. Keep sensitive error content out of state. Ordinary `begin-continuation` never reissues a permit after an attempt. Legacy first attempts may omit attempt IDs; retry receipts must match their new ID, so delayed old receipts cannot overwrite a new attempt.
+
+### Definite preflight rejection
+
+One additional creation attempt is allowed only when the original tool result proves rejection before any chat was created. A generic failure, timeout, missing list result, queued client ID, `creating` or any uncertainty does not qualify. Reconcile actual candidate chats first. An attempt ever recorded `unknown` remains ineligible for retry, even if later labelled `failed`; reconcile a known successor or use manual resolution.
+
+Before retry, resolve the actual capability/parameter issue, verify unchanged original authority or a new human retry instruction and its scope, and confirm no successor exists. A new instruction alone does not prove non-creation or authorize changing models. Save a bounded durable evidence file with the raw definite rejection, authority source, corrected request/capability evidence and reconciliation results. Then run:
+
+```bash
+python3 "<SKILL_DIR>/scripts/session_hook.py" retry-continuation --root "<ROOT>" --handoff-id "<HANDOFF_ID>" --attempt-id "<FAILED_ATTEMPT_ID>" --preflight-rejected --no-successor --retry-evidence "<ABS_EVIDENCE_FILE>"
+```
+
+The flags assert coordinator-verified facts; the script cannot prove authority, discover chats or validate the client's model catalog. Under the same lock and ownership/digest/budget guards it preserves the failed attempt/evidence hash, issues a new attempt ID and grants at most one extra permit. Call `create_thread` only for that invocation's `create_allowed=true`, then record the result against the NEW attempt ID. A second failure stops automatic creation; preserve evidence for manual resolution. Never reset ready/creation state, change the Handoff digest or erase failure history to retry.
 
 ## Take over
 

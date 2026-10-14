@@ -16,7 +16,7 @@ Coordinate the authorized task through scoped work, independent review, verifica
 | Worker | `gpt-6-luna` / `high` | Own one complete execution work package through fixes, checks, accepted commits and authorized follow-through. |
 | Reviewer | `gpt-6-luna` / `high`; high risk: `gpt-6-astra` / `xhigh` | Independently review the work package's candidates and affected rechecks. |
 
-Resolve model and effort from verified original user instructions, then explicit role configuration, then this table. Client defaults, a previous chat's model, and agent-written summaries are not user overrides. Pass resolved values in tool arguments, not only in prompts. Follow [Create a continuation](references/session-lifecycle.md#create-a-continuation) for the main chat; an unavailable or unverifiable model requires resolution, not silent substitution.
+Resolve model and effort from verified original user instructions, then explicit role configuration, then this table. Client defaults, a previous chat's model, and agent-written summaries are not user overrides. Pass resolved values where the tool permits overrides. For the main chat, [Create a continuation](references/session-lifecycle.md#create-a-continuation) also covers verified matching client defaults and bounded recovery from definite preflight rejection; an unavailable or unverifiable model requires resolution, not silent substitution.
 
 Keep the reviewer independent of the worker and planning expert. A high-risk reviewer replaces the ordinary reviewer rather than adding a preliminary review. There is no separate commit agent.
 
@@ -59,6 +59,8 @@ Dispatch the package ID, objective, acceptance criteria, real baseline/workspace
 The coordinator verifies acceptance evidence and exceptions; routine reproduction, full check/build/scan runs and detailed findings/disposition work stay with the assigned worker, expert or reviewer. Missing or conflicting evidence returns to its owner for correction or escalation. Update status and SHA after acceptance. Unlock dependent work only when its workspace contains the required commit or explicitly delivered contract.
 
 ## Freeze, review, fix, verify, commit
+
+Map project requirements to each acceptance stage using [Stage gates](references/check-evidence.md#stage-gates). Verify the current stage's mandatory gates; retain every later delivery/runtime gate without adding it as an earlier source-commit requirement unless the project requires that ordering.
 
 Use Alibaba `open-code-review-delegate` by default; additional review Skills require explicit user selection. OCR supplies scope and rules, while the assigned reviewer performs the review without an extra OCR model. Worker self-checks do not replace independent review.
 

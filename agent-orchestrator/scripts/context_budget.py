@@ -60,17 +60,25 @@ def timestamp(value):
         return None
 
 
-def native_budget(path, sid, context, model):
+def native_budget(path, sid, context, model, diagnostics=None):
     """Require a matching turn/model and a sample newer than the current context epoch."""
+    if diagnostics is not None:
+        diagnostics.clear()
+
+    def reject(reason):
+        if diagnostics is not None:
+            diagnostics["reason"] = reason
+        return None
+
     epoch = timestamp(context["epoch"])
     if epoch is None or not context["turn_id"] or context["model"] != model:
-        return None
+        return reject("invalid_context_or_model")
     home = next((p.parent for p in Path(path).resolve().parents if p.name == "sessions"), None)
     if home is None:
-        return None
+        return reject("sessions_directory_missing")
     database = home / "logs_2.sqlite"
     if not database.is_file():
-        return None
+        return reject("native_database_missing")
     try:
         with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.2)) as conn:
             row = conn.execute(
@@ -79,32 +87,40 @@ def native_budget(path, sid, context, model):
                 "AND feedback_log_body LIKE '%post sampling token usage%' "
                 "ORDER BY ts DESC, ts_nanos DESC, id DESC LIMIT 1", (sid, int(epoch))).fetchone()
     except sqlite3.Error:
-        return None
+        return reject("native_database_unavailable")
     if row is None:
-        return None
+        return reject("matching_sample_missing")
     row_id, seconds, nanos, body = row
     if (type(seconds) is not int or type(nanos) is not int or not 0 <= nanos < 1_000_000_000):
-        return None
+        return reject("invalid_sample_timestamp")
     sampled_at = seconds + nanos / 1_000_000_000
     usage_at = timestamp(context["usage_at"])
-    if sampled_at < epoch or (usage_at is not None and sampled_at + 1 < usage_at):
-        return None
+    if diagnostics is not None:
+        diagnostics.update(row_id=row_id, sampled_at=sampled_at, epoch=epoch, usage_at=usage_at)
+    if sampled_at < epoch:
+        return reject("sample_before_context_epoch")
+    if usage_at is not None and sampled_at + 1 < usage_at:
+        return reject("sample_before_latest_usage")
     if not isinstance(body, str) or "post sampling token usage " not in body:
-        return None
+        return reject("malformed_native_sample")
     prefix, fields = body.rsplit("post sampling token usage ", 1)
     models = re.findall(r'\bmodel="?([A-Za-z0-9._:-]+)', prefix)
     values = dict(re.findall(r"\b([a-z_]+)=([^ ]+)", fields))
-    if (not models or models[-1] != model or values.get("turn_id") != context["turn_id"]
-            or values.get("auto_compact_limit_scope") != "Total"):
-        return None
+    if not models or models[-1] != model:
+        return reject("sample_model_mismatch")
+    if values.get("turn_id") != context["turn_id"]:
+        return reject("sample_turn_mismatch")
+    if values.get("auto_compact_limit_scope") != "Total":
+        return reject("unsupported_compaction_scope")
     try:
         tokens = int(values["total_usage_tokens"])
         scope_tokens = int(values["auto_compact_scope_tokens"])
         window = int(re.fullmatch(r"Some\((\d+)\)", values["full_context_window_limit"])[1])
         limit = int(re.fullmatch(r"Some\((\d+)\)", values["auto_compact_scope_limit"])[1])
     except (KeyError, ValueError, TypeError):
-        return None
+        return reject("invalid_native_fields")
     if tokens < 0 or scope_tokens != tokens or window <= 0 or limit <= 0:
-        return None
+        return reject("invalid_native_counts")
     return {"tokens": tokens, "window": window, "limit": limit, "model": model,
-            "api_tokens": context["api_tokens"], "source": str(database), "row_id": row_id}
+            "api_tokens": context["api_tokens"], "source": str(database), "row_id": row_id,
+            "sampled_at": sampled_at, "turn_id": context["turn_id"]}

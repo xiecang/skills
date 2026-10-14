@@ -14,6 +14,8 @@ SOL coordinates, verifies critical evidence and makes acceptance/release decisio
 
 [Check evidence](references/check-evidence.md) binds actual workdirs, frozen tracked/untracked inputs and command/log receipts. Fast/focused checks and review closure precede final heavy gates where project rules permit; all final acceptance/security checks remain required. Keep one current package state, durable evidence indexes and scoped original approval/fallback conditions across handoffs.
 
+Map source, integration, deployment and live acceptance gates to their actual project stages. Creation preflight rejections have one evidence-backed retry; uncertain outcomes still require reconciliation. Native-budget failures retain a diagnostic reason and last verified history without treating it as current capacity. See the lifecycle reference for attempt IDs, verified matching client defaults and unchanged ownership/budget safeguards.
+
 ## Validate the source
 
 From this directory:
