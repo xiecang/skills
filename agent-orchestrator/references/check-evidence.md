@@ -1,61 +1,55 @@
-# Workdir and candidate-bound checks
+# Check evidence
 
-Read before freezing a candidate, running acceptance checks or crediting a previous result. Use the project's existing equivalent if it establishes the same identities; otherwise use `scripts/candidate_check.py`. This helper is an integrity check, not a sandbox, authorization source or replacement for project gates/review.
+Use evidence sufficient to establish the actual candidate and required result. Prefer the project's existing checks, Git/CI records, artifact digests and original tool logs. A bespoke manifest, wrapper, receipt index or acceptance certificate is not required merely because this Skill is active.
 
-## Freeze and execute
+## Default record
 
-The worker first verifies the authorized **absolute worktree root**, expected full HEAD, permitted files/actions and required commands. Set the tool's actual `workdir` explicitly for every execution call, including member packages. A path in a prompt or an inherited shell cwd is not verification. Stop on a mismatch; results from Main or another worktree cannot satisfy this candidate's checks even when HEAD matches.
+At a useful acceptance boundary record the actual absolute workspace, candidate/changed scope, command, exit status and original log location. Include relevant dirty/untracked inputs, configuration and environment; a commit SHA alone does not identify uncommitted changes. Keep check inputs stable during execution, and do not credit a result from the wrong workdir, another candidate, an interrupted command or a summary unsupported by its original result.
 
-Stop other source writers before capture and throughout the checks. Use a durable, coordinator-approved evidence directory, either outside the worktree or in an existing Git-ignored directory. Keep manifests, logs and receipts under versioned package/candidate names; the helper refuses overwriting files, writing evidence into candidate inputs or Git metadata.
+For deployment, reuse accepted source/build evidence and identify the actual artifact, current target/configuration, authorized action and runtime result. Source checks and live acceptance are different requirements: one cannot substitute for the other. Protect user changes and retain failed or unknown attempt records.
+
+Use one current package entry, with links to original evidence. Do not hash the index, hash the acceptance of that index, or create another review package to certify those records. Hashes identify inputs/artifacts; they do not grant authority or prove that a claim is true.
+
+## Accept and reuse
+
+When the current stage's required checks and applicable review pass on the actual inputs, confirmed findings close and authority holds, perform the next authorized step. Reopen only for a missing mandatory result, contradictory evidence, changed relevant inputs/environment/target, required freshness or a concrete newly discovered risk. A new chat, executor, attempt ID, receipt path or desire for reassurance is not a reason.
+
+Reuse unchanged source review across delivery attempts. A bookkeeping-only change needs no independent review; verify execution parameters and required target/configuration conditions normally. If code or behavior actually changes, recheck affected tests and review findings. Run all user/project-required final gates; do not rerun a whole suite solely because a note or evidence filename changed.
+
+Separate gates by their actual requirement: source acceptance/commit, integration, artifact preparation or live delivery. A later monitoring/rendering blocker does not prevent an independent service deployment whose requirements pass. An agent's earlier checklist is not an authority source. Add checks only for actual requirements or demonstrated impact, and do not waive required checks to shorten the process.
+
+## Optional candidate helper
+
+Use `scripts/candidate_check.py` when concurrent/dirty/external inputs or a project requirement make an explicit snapshot useful and existing project evidence is insufficient. Do not add it around every command. It is an integrity helper, not a sandbox or authorization mechanism.
+
+Stop source writers while capturing/running checks. Use a durable evidence directory outside candidate inputs or in an existing ignored directory. Verify the absolute worktree and expected full HEAD:
 
 ```bash
 python3 "<SKILL_DIR>/scripts/candidate_check.py" capture --workspace "<WORKTREE>" --head "<VERIFIED_FULL_HEAD>" --output "<EVIDENCE>/candidate-v1.json"
 ```
 
-Preserve the returned manifest SHA-256 as the candidate ID. Capture includes all tracked and non-ignored untracked file contents, executable/file modes, deletions and file-symlink identities. Add `--input "<ABS_FILE>"` for relevant ignored/external input files. Directory inputs, submodules and directory/broken symlinks need project-native evidence; incomplete input coverage cannot be called verified. Toolchain, relevant environment and external artifact identities still need the project's normal evidence.
+The returned manifest SHA-256 identifies all tracked and non-ignored untracked content, modes, deletions and file symlinks. Add `--input "<ABS_FILE>"` for relevant ignored/external files actually consumed by checks. Directory inputs, submodules and broken/directory symlinks need project-native evidence. Build outputs belong to their artifact checks, not the source manifest merely because they exist.
 
-Declare ignored/generated files as check inputs when that command consumes them. Bind build outputs to their artifact gates rather than adding them to source-check inputs merely because they exist; retain the helper's complete tracked/untracked coverage.
-
-From the declared workdir, execute each actual required command as an argument list after `--`:
+Run the real required command from its actual workdir; the helper verifies inputs before and after execution and records the command, exit, duration and log hash:
 
 ```bash
 python3 "<SKILL_DIR>/scripts/candidate_check.py" run --manifest "<EVIDENCE>/candidate-v1.json" --manifest-sha256 "<FROZEN_SHA256>" --workdir "<WORKTREE_OR_MEMBER>" --log "<EVIDENCE>/test-v1.log" --receipt "<EVIDENCE>/test-v1.json" -- cargo test --workspace
 ```
 
-Use the real project command/support matrix, including explicit environment arguments where needed. The example is not a reduced acceptance recipe. The helper rejects wrong cwd, workspace, HEAD or changed inputs before launching, records the real launch workdir/command/exit/log hash and duration, then rechecks inputs. Shells, task recipes, manifest flags and programs can change their own directories or select other inputs: verify their effective target with project-native evidence, prefer direct commands, and never credit the wrong target because this wrapper returned valid. An interrupted check, launch failure or input drift is never valid, including when the child exited zero. Keep the raw log; a wrapper exit or summary alone is insufficient.
+Verify effective targets of scripts, task recipes and manifest flags: a valid wrapper cannot make a wrong-target check valid. Retain original logs and inspect relevant failures; wrapper success alone does not prove the required suite ran.
 
-## Accept and reuse
-
-**Stop when the current stage's required checks and applicable review are verified for the actual candidate, confirmed findings are closed, and required authority/safety conditions hold. Perform the next authorized step.** Review modes are defined in [SKILL.md](../SKILL.md#freeze-review-fix-verify-commit). Reopen verification only for an unfinished mandatory gate, missing/contradictory evidence, changed relevant inputs/environment/target, expired required freshness, or a specific unresolved risk in the affected path. Record the gap in the existing package entry/finding and resolve only that scope. A new chat, role change or desire for reassurance is not a trigger.
-
-Before crediting a result, compare it with the required command and verify the current candidate, declared workdir and original log:
+To credit that receipt later, execute from the same declared workdir:
 
 ```bash
 python3 "<SKILL_DIR>/scripts/candidate_check.py" verify --manifest "<EVIDENCE>/candidate-v1.json" --manifest-sha256 "<FROZEN_SHA256>" --workdir "<WORKTREE_OR_MEMBER>" --receipt "<EVIDENCE>/test-v1.json" -- cargo test --workspace
 ```
 
-Execute verification from that workdir too. This binds the result to actual inputs, not merely a commit or a claimed pass. It does not establish that every required command ran, authorize a waiver, make logs tamper-proof against an actor with the same filesystem access, or prove an unchanged environment. The coordinator still verifies scope/completeness, relevant original log sections, review closure and project-specific security/artifact requirements.
+The helper binds the whole manifest: changed inputs require a new manifest, and old receipts cannot be rebound. Reuse unaffected results only where project-native dependency evidence permits; otherwise rerun the covered checks. Do not weaken this helper's complete-input contract for convenience; choose appropriate project-native evidence when broad coupling adds no value.
 
-Reuse verified indexed results while their bound inputs, command, relevant environment and freshness remain valid. Revalidate identity at required acceptance/external-action checkpoints using the existing manifest/receipt or project-native equivalent; repeat tests/builds/review only when the stopping rule requires it. Mandatory final-state, integration and high-risk checks remain required.
+Verify pre-commit receipts before HEAD changes, then record the accepted candidate-to-commit mapping. Historical receipts remain historical, not runs on the new commit. Rerun requirements that actually depend on VCS metadata or explicitly require the committed revision.
 
-Changed inputs need a new manifest and affected rechecks/review. The helper binds the whole captured manifest, so a new manifest cannot verify an old receipt. Carry unaffected results across candidates only where project rules permit and project-native dependency evidence establishes applicability; otherwise rerun the covered checks. Preserve old receipt identities/status as history; wrong-directory or interrupted runs never become passes.
+Do not run daemonizing checks through this helper. It stops its owned process group on interruption; a remaining/unknown group or descendants outliving the leader invalidates the receipt. Verify other writers stopped before ownership release. Interrupted checks never count as passes.
 
-Do not run background/daemonizing checks through this helper. SIGINT stops its owned process group, but the coordinator must still verify all relevant writers/processes stopped before handoff.
+## Handoff
 
-Verify pre-commit receipts while their frozen HEAD is still current, then record acceptance and the resulting commit. Committing changes HEAD, so direct verification of the old manifest will reject it even if file bytes match. Independently verify the accepted candidate-to-commit mapping, including preserved on-disk inputs and the approved task delta; retain the original receipts without relabelling them as runs on the new HEAD. Follow project reuse rules and rerun checks whose inputs include changed VCS metadata or whose final gate requires the committed revision. Capture a fresh manifest for new checks/builds at that revision; this helper never silently rebinds historical receipts.
-
-Interrupt cleanup waits for the owned process group, not just its leader, and escalates to SIGKILL after the grace period. A remaining/unknown group sets `process_group_stopped=false`; wrapper termination alone is not proof that handoff is safe. A leader that exits while its descendants remain also yields an interrupted, invalid receipt. Caller verification of detached/other writers remains mandatory.
-
-## Stage gates
-
-Record gates in the existing package entry by stage: source acceptance/commit, integration, artifact/deployment preparation, and live delivery/runtime acceptance. Each gate has its original requirement/source, exact inputs, evidence status and decision owner. Separate project/user requirements from focused checks justified by a concrete affected-path risk. An agent's earlier checklist alone creates no requirement; add or expand a gate only for an actual requirement or newly established impact. This mapping cannot waive required checks.
-
-Accept source work only after its required checks and applicable review close. A deployment-only builder receipt, protected native interaction or live trial remains mandatory at that later checkpoint; it blocks source acceptance only if the project explicitly requires it there. Incomplete contracts and baseline failures remain blockers at their required stage unless the human grants an applicable scoped exception. Preserve the exact exception and remaining debt; source acceptance cannot authorize deployment with unsatisfied delivery gates.
-
-Carry this mapping through handoff. Reuse a valid full-review plus affected-increment closure chain in the applicable mode on unchanged inputs; neither a new coordinator nor a missing later-stage receipt requires repeating a complete source review. Resolve actual evidence gaps with the existing owner before adding checks or requesting approval.
-
-## Keep one current evidence entry
-
-Keep one current evidence entry per package in the plan: workspace, changed scope, candidate manifest/digest or accepted commit, stage, valid/failed/interrupted/unrun checks with absolute receipt paths, review mode/reason and finding status, unresolved decisions and next action/owner. Replace superseded state; retain raw logs and analysis behind evidence indexes. The [reporting contract](execution-boundaries.md#verification-and-reports) controls what enters the main chat.
-
-Generate the Handoff synopsis from those verified entries and validate referenced candidate/check identities before `prepare-handoff`. A Handoff's file digest proves transport integrity, not that its statements are current. Conflicting manifest IDs or stale hashes block acceptance/dependent execution until reconciled. Preserve received/archived snapshots byte-for-byte; after takeover correct the active plan without rewriting history. Persist required evidence before ownership release; essential continuity must not depend only on volatile `/tmp` files. None of these summaries or receipts grants user authority or changes a safety gate.
+Persist required continuity evidence outside volatile temporary storage. Carry only the current package state, unresolved issue, next executable action and links to needed evidence. Preserve received/archived snapshots; resolve a material candidate/result conflict in the active plan without rewriting history. Transport digests protect the received handoff, not every later note or business decision.

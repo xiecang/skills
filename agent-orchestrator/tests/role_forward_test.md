@@ -34,4 +34,6 @@ Recovery/stage/budget cases also use Boolean flags `allow_retry`, `preserve_atte
 
 Verification/scheduling cases also use Boolean flags `verification_complete`, `additional_verification_needed`, `extra_gate_blocks_source`, `repeat_manual_budget_check`, `start_new_heavy_gate_before_handoff`.
 
+Execution-overhead cases use Boolean flags `reuse_reviewed_runner`, `repeat_incremental_review`, `create_coordinator_gate`, `must_check_target_and_authority`, `ocr_required`, `new_acceptance_certificate`, `needs_worker`, `needs_integration_worker`, `block_for_plan_collision`, `overwrite_other_task_state`, `requires_user_exception`, `continue_independent_work`. Apply only the fields relevant to each case; derive their values from the policy and supplied facts.
+
 Use actual JSON booleans for all decision flags, not nulls, numbers, strings or arrays. Choose values independently; the format does not supply an intended decision. Run the behavioral grader with `ORCHESTRATOR_ROLE_RESPONSES` pointing to that file. Report any failures or ambiguities; missing or stale responses cannot count as completed role validation. These cases test planning decisions, not native tool execution or production safety results.

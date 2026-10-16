@@ -180,7 +180,7 @@
       "decide_new_dispatch",
       "preserve_owned_execution"
     ],
-    "question": "Assign responsibilities. Can historical evidence stand in for current capacity or permit new dispatch/automatic creation? What should happen to diagnostic history and freshness checks?"
+    "question": "Assign responsibilities. Does stale telemetry stop otherwise authorized new dispatch? Can history establish current capacity or authorize automatic chat creation? State what happens to native freshness checks and whether repeated manual polling is needed."
   },
   {
     "id": "verification_stop",
@@ -202,5 +202,59 @@
     "facts": "Startup budget verification completed. The latest trusted Hook result for this owner/model/turn is current, verified and below the handoff threshold. No Hook failure, native freshness gap or pending handoff decision exists. The worker is running checks on frozen inputs within its original scope, and no milestone or failure needs inspection.",
     "actions": ["decide_budget_refresh", "continue_owned_checks"],
     "question": "Assign responsibilities. Is another manual check-budget/status query needed now? Must new dispatch be suspended? How should the coordinator wait while preserving the owned checks and future freshness guards?"
+  },
+  {
+    "id": "unchanged_release_retry",
+    "task": "Perform one explicitly authorized retry of an accepted test-service deployment.",
+    "facts": "A worker owns delivery. The previous attempt definitively failed before remote execution. The human directly authorized one further attempt. Runner, remote payload, artifact, target and configuration are unchanged; original checks and independent high-risk review remain valid. Executor permissions, read-only connectivity, current target and backups have been checked. The existing runner validates its parameters and required live preconditions. Only attempt ID and log path change through existing arguments. No user, project or platform requires a separate coordinator-issued file gate.",
+    "actions": [
+      "validate_execution_inputs",
+      "execute_attempt",
+      "inspect_runtime_result"
+    ],
+    "question": "Assign actions. Must the runner be cloned or source review repeated? Does the coordinator need to sign a new gate? Which real checks and retry limits remain? Return reuse_reviewed_runner, repeat_incremental_review, create_coordinator_gate, must_check_target_and_authority and allow_retry."
+  },
+  {
+    "id": "metadata_only_delivery",
+    "task": "Finish delivery bookkeeping after required runtime acceptance has passed.",
+    "facts": "All required checks and review are accepted with original evidence intact. A worker only updates an evidence index to point to a renamed log; source, artifact, target, configuration, permissions and behavior are unchanged. This is a non-Git evidence directory; OCR is unavailable and no user or project rule requires it.",
+    "actions": [
+      "update_evidence_index",
+      "finish_delivery"
+    ],
+    "question": "Assign actions. Does this need OCR, independent incremental review or another acceptance certificate? Return ocr_required, repeat_incremental_review and new_acceptance_certificate."
+  },
+  {
+    "id": "direct_multistep",
+    "task": "Fix two related UI label callers and their fixture in three files, run required checks and deliver the diff.",
+    "facts": "The coordinator has already inspected all relevant code and tests, the fix is clear and local, and it has the needed tools. No worker is assigned, independent parallel work or substantial new context is needed. No sensitive behavior or independent-review requirement exists. No commit is authorized.",
+    "actions": [
+      "implement",
+      "run_checks",
+      "review_candidate",
+      "deliver_diff"
+    ],
+    "question": "Assign actions. Does exceeding one file require delegation or an integration worker? Return needs_worker, needs_integration_worker and commit_authorized."
+  },
+  {
+    "id": "task_state_collision",
+    "task": "Complete an independent local task while a separate release chat owns the root session marker and plan.",
+    "facts": "Actual file, index, test and external resource overlap has been checked and there is none. Permitted task-specific scratch space is available. The other owner is still active and its marker must not be replaced. This small task needs no automatic continuation; no worker is assigned.",
+    "actions": [
+      "choose_plan_location",
+      "perform_independent_work"
+    ],
+    "question": "Assign actions. Does the marker collision block work or require user approval for a new plan path? Return block_for_plan_collision, overwrite_other_task_state, requires_user_exception and allow_automatic_creation."
+  },
+  {
+    "id": "unknown_remote_attempt",
+    "task": "Continue a release after an SSH timeout, without adding an internal signing workflow.",
+    "facts": "It is unknown whether the remote state-changing payload executed. Source/build evidence remains valid. The user forbids automatic retries and has not renewed permission. A worker can perform authorized read-only reconciliation; an unrelated local documentation task is independently executable.",
+    "actions": [
+      "reconcile_remote_state",
+      "continue_independent_task",
+      "decide_retry"
+    ],
+    "question": "Assign actions. May the attempt be replayed or the uncertainty cleared by making a fresh local approval file? Return allow_retry, create_coordinator_gate, continue_independent_work and preserve_attempt_receipts."
   }
 ]

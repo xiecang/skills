@@ -98,7 +98,7 @@ class SessionHookTests(unittest.TestCase):
         self.assertFalse(self.call("activate")["auto_continue"])
         self.assertTrue(self.call("activate", "main-a", "--auto-continue")["auto_continue"])
 
-    def test_early_handoff_uses_current_usage_and_keeps_pending_reminder(self):
+    def test_early_handoff_requests_once_and_reminds_on_new_user_input(self):
         self.call("activate")
         transcript = self.transcript(662_719)
         self.assertEqual(self.hook(event="PostToolUse", transcript=transcript).stdout, "")
@@ -108,7 +108,8 @@ class SessionHookTests(unittest.TestCase):
         self.assertEqual(result["hookSpecificOutput"]["hookEventName"], "PostToolUse")
         self.assertIn("HANDOFF.md", result["hookSpecificOutput"]["additionalContext"])
         self.assertTrue(self.call("status")["handoff_requested"])
-        repeated = json.loads(self.hook(event="PostToolUse", transcript=transcript).stdout)
+        self.assertEqual(self.hook(event="PostToolUse", transcript=transcript).stdout, "")
+        repeated = json.loads(self.hook(event="UserPromptSubmit", transcript=transcript).stdout)
         self.assertIn("交接仍待完成", repeated["hookSpecificOutput"]["additionalContext"])
         self.assertFalse((self.root / ".codegraph" / "HANDOFF.md").exists())
 
@@ -154,6 +155,7 @@ class SessionHookTests(unittest.TestCase):
     def test_compaction_limit_is_ignored_after_model_change(self):
         self.call("activate", "main-a", "--compact-limit", "500000", "--compact-model", "gpt-6.1-sol")
         for model in ("gpt-6-astra", None):
+            self.hook(event="PostToolUse", transcript=self.transcript(30_000))
             self.assertIn("预算未核实", self.hook(event="PostToolUse",
                           transcript=self.transcript(400_000), model=model).stdout)
         self.assertFalse(self.call("status").get("handoff_requested", False))
@@ -469,6 +471,41 @@ class SessionHookTests(unittest.TestCase):
         self.call("prepare-handoff", "main-a", "--writers-stopped")
         self.continuation("begin-continuation", ok=False)
 
+    def test_low_usage_stale_sample_warns_once_without_dispatch_stop(self):
+        self.call("activate")
+        transcript = self.transcript(30_000)
+        self.hook(event="PostToolUse", transcript=transcript)
+        rows = [json.loads(line) for line in transcript.read_text().splitlines()]
+        rows[-1]["timestamp"] = "2026-10-14T02:13:23Z"
+        transcript.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        warning = self.hook(event="PostToolUse", transcript=transcript).stdout
+        self.assertIn("sample_before_latest_usage", warning)
+        self.assertIn("继续已授权工作", warning)
+        self.assertNotIn("停止新派发", warning)
+        before = self.state_path.read_bytes()
+        for _ in range(3):
+            self.assertEqual(self.hook(event="PostToolUse", transcript=transcript).stdout, "")
+            self.assertEqual(self.state_path.read_bytes(), before)
+        state = self.call("status")
+        self.assertFalse(state["budget_evidence"]["verified"])
+        self.assertFalse(state.get("handoff_requested", False))
+        self.assertFalse(state.get("handoff_budget_blocked", False))
+        self.hook(event="PostToolUse", transcript=self.transcript(40_000))
+        (Path(self.temp.name) / "logs_2.sqlite").unlink()
+        self.assertIn("native_database_missing",
+                      self.hook(event="PostToolUse", transcript=transcript).stdout)
+
+    def test_missing_startup_telemetry_is_advisory_but_cannot_create(self):
+        self.call("activate")
+        transcript = self.transcript(30_000)
+        (Path(self.temp.name) / "logs_2.sqlite").unlink()
+        self.assertIn("继续已授权工作", self.hook(event="PostToolUse", transcript=transcript).stdout)
+        self.assertEqual(self.hook(event="UserPromptSubmit", transcript=transcript).stdout, "")
+        self.assertFalse(self.call("status")["startup_budget_checked"])
+        (self.root / ".codegraph/HANDOFF.md").write_text("Stopped writers, unknown capacity.\n")
+        self.call("prepare-handoff", "main-a", "--writers-stopped")
+        self.continuation("begin-continuation", ok=False)
+
     def test_fresh_native_sample_restores_current_evidence_without_history_fallback(self):
         self.call("activate")
         transcript = self.transcript(30_000)
@@ -501,7 +538,8 @@ class SessionHookTests(unittest.TestCase):
         self.assertIn("提前交接线", self.hook(event="UserPromptSubmit", transcript=transcript).stdout)
         result = self.call("check-budget", "main-a", "--transcript-path", str(transcript),
                            "--model", "gpt-6.1-sol")
-        self.assertIn("交接仍待完成", result["hookSpecificOutput"]["additionalContext"])
+        self.assertIsNone(result)
+        self.assertTrue(self.call("status")["handoff_requested"])
 
     def test_precompact_observation_reports_actual_counters_without_requesting_handoff(self):
         self.call("activate")
@@ -560,7 +598,8 @@ class SessionHookTests(unittest.TestCase):
             stream.write("damaged log record\n")
         self.hook(event="PostToolUse", transcript=transcript, ok=False)
         self.assertTrue(self.hook(event="SessionStart", transcript=transcript).stdout)
-        self.assertTrue(self.hook(event="PostToolUse", transcript=transcript).stdout)
+        self.assertEqual(self.hook(event="PostToolUse", transcript=transcript).stdout, "")
+        self.assertTrue(self.hook(event="UserPromptSubmit", transcript=transcript).stdout)
 
     def test_invalid_usage_does_not_mark_handoff_or_expose_log_content(self):
         self.call("activate")
@@ -751,7 +790,8 @@ class SessionHookTests(unittest.TestCase):
         before = self.state_path.read_bytes(), handoff.read_bytes()
         for source in ("compact", "resume"):
             self.assertIn("只核对创建和接管结果", self.hook(source=source).stdout)
-        self.assertIn("旧主会话已释放", self.hook(event="PostToolUse").stdout)
+        self.assertEqual(self.hook(event="PostToolUse").stdout, "")
+        self.assertIn("旧主会话已释放", self.hook(event="UserPromptSubmit").stdout)
         self.assertEqual(before, (self.state_path.read_bytes(), handoff.read_bytes()))
 
     def test_legacy_ready_recovery_is_read_only_and_unknown(self):

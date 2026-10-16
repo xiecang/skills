@@ -1,6 +1,6 @@
 # Main-session lifecycle
 
-Only the coordinator executes this procedure. `<SKILL_DIR>` is the installed Skill directory; `<ROOT>` is the main workspace's project root. Use absolute paths. Subagents do not register or maintain main-session files.
+Use this procedure for long tasks needing automatic continuation or an existing registered handoff. Small direct tasks need no session registration. Only the coordinator manages session ownership; `<SKILL_DIR>` is the installed Skill directory and `<ROOT>` the main workspace root. Use absolute paths.
 
 Read by stage: [Authorization](#authorization), [Start](#start), and [Budget](#budget) at startup; [Prepare](#prepare) and [Create](#create-a-continuation) before handoff; [Reconcile](#reconcile) for `ready` recovery; [Take over](#take-over) and [Archive](#archive) in the successor. Consult [Hooks](#hooks) when checking setup/trust and [Compatibility](#compatibility-and-rollback) only for legacy state or rollback.
 
@@ -22,7 +22,9 @@ This authorizes early handoff and a new chat continuing the same task, with comp
 
 ## Start
 
-Resolve roles from [SKILL.md](../SKILL.md#roles-and-authority), verify tool/model availability and hook trust, and record original overrides. Check the current plan belongs to this task and no unreleased coordinator exists. Record scope, role choices, actual session ID, authorization/source, workspace, Git baseline, and existing changes.
+Resolve roles from [SKILL.md](../SKILL.md#choose-execution-ownership), verify tool/model availability and hook trust once, and record original overrides. Reuse the task entry for scope, session/authority source, workspace, Git baseline and existing changes; do not create duplicate registration evidence.
+
+If another task owns the root marker, do not overwrite it or wait merely for a plan-directory release. Use a task-specific plan in permitted scratch space and continue independent authorized work after checking actual file/resource conflicts. Without an available registered workspace, native compaction/manual handoff is the fallback; automatic continuation through this hook is unavailable. Routine plan placement needs no user exception approval. Do not move an active ready handoff or evade its ownership rules.
 
 The chat must start inside `<ROOT>`; setting a shell command's `workdir` does not change the chat's startup directory. Continuations need the same main workspace. Register:
 
@@ -34,7 +36,7 @@ New tasks default to `auto_continue = true`; add `--manual-continue` for explici
 
 The script writes only `.codegraph/agent-orchestrator.json` and its lock. State v2 phases are `active`, `ready`, and `inactive`. It does not write plans, business code, indexes, or global configuration, and cannot stop writers for you.
 
-Before dispatch or business writes, run `check-budget` with this chat's verified model and rollout path, then inspect `status` for `startup_budget_checked` and `budget_evidence`. This also applies when an existing chat is reactivated after planning; its history remains in context. A small-output tool may be needed to produce the first native sample.
+The trusted hook normally records native budget automatically. At registration/reactivation, inspect available budget evidence once; use `check-budget` only if that evidence is unavailable or a handoff decision needs it. Unknown telemetry does not block ordinary authorized execution, and producing a fresh sample is not a separate work package. Automatic continuation creation still requires positive verified capacity; history is not proof of current capacity.
 
 ```bash
 python3 "<SKILL_DIR>/scripts/session_hook.py" check-budget --root "<ROOT>" --model "<ACTUAL_MODEL>" --transcript-path "<ACTUAL_ROLLOUT_PATH>"
@@ -42,48 +44,33 @@ python3 "<SKILL_DIR>/scripts/session_hook.py" check-budget --root "<ROOT>" --mod
 
 ## Budget
 
-After startup verification, rely on the trusted Hook's current verified budget evidence. Refresh manually for missing/stale evidence, a Hook failure or a handoff decision; a healthy current Hook result needs no duplicate `check-budget`/`status` polling. Missing telemetry still suspends new dispatch under the rules below; an unchanged failed sample calls for reporting the gap, not a polling loop.
+Budget is a scheduling signal, separate from user authority and project acceptance. A missing/stale native sample must not suspend ordinary work, trigger evidence repair, or cause manual polling. The hook records diagnostics and reports an unavailable-telemetry episode once, then remains quiet until recovery. Preserve progress and allow native compaction/manual handoff if telemetry stays unavailable; never label unknown capacity as verified.
 
-Use the native runtime's **active-context accounting**, not `last_token_usage.total_tokens` or cumulative API usage. The hook reads the matching chat's `post sampling token usage` sample from `$CODEX_HOME/logs_2.sqlite` in read-only mode, locating it beside the rollout's `sessions` directory. The sample must match the actual model and current turn, follow the latest turn/compaction epoch, and remain current relative to the rollout's latest usage record.
+The hook reads the matching owner's/model's/current-turn `post sampling token usage` from the read-only native log database beside the rollout. It checks epoch and freshness against current usage. Do not replace this with API request/cumulative counts or loosen accounting checks to manufacture a result. Local log formats are not stable interfaces; revalidate on client upgrades.
 
-For supported `Total` scope, `U = total_usage_tokens = auto_compact_scope_tokens`, `W = full_context_window_limit`, and `C = auto_compact_scope_limit`. These are loaded runtime values; configuration files alone do not prove them. State `budget_evidence` records the counters, window, limit, database path and row ID. `api_tokens` is diagnostic only.
+For supported `Total` scope:
 
 ```text
-W = runtime effective context window
-C = native loaded total compaction limit for this session and model
+U = native total_usage_tokens = auto_compact_scope_tokens
+W = native full_context_window_limit
+C = native auto_compact_scope_limit
 B = min(W, C, any matching manually verified lower cap)
 R = max(ceil(B / 5), 2 * (35,000 + 15,000))
-T = B - R; request handoff when U >= T
+T = B - R
 ```
 
-The 35K handoff cost and 15K request growth are conservative historical estimates; 20% is a policy reserve, not a proven optimum. Round upward. With native `W=828,400` and `C=780,000`, reserve 156,000 and hand off at 624,000 **native context tokens**. There is no fixed 200K or 319K cap.
+The reserve is a conservative policy, not a measured optimum. For W=828,400 and C=780,000, T=624,000 native context tokens. A verified U >= T requests handoff; preserve the request until resolved. Before a heavy check, use available capacity and observed growth to choose a useful checkpoint; let already-owned checks finish with bounded waits when possible. If interrupted, retain the actual result and unfinished scope, never a pass. Stop writers before ownership release.
 
-Native telemetry supplies C automatically. Optional flags on startup or takeover `activate` can record a separately verified lower cap; they never expand the native budget:
+`startup_budget_checked` records a positive verified native sample, not permission to execute business work. `budget_evidence.verified=false` and `last_verified` distinguish unknown current capacity from historical diagnostics. Neither missing/zero usage nor history grants automatic creation. New activations/takeovers reset the startup flag; successful same-owner retries preserve it.
 
-```bash
---compact-limit <VERIFIED_LIMIT> --compact-model <ACTUAL_MODEL>
-```
+`handoff_budget_blocked` protects against continuation loops when the reserve consumes capacity or a successor has <=15,000 tokens of margin. Keep the block until a positive sample shows R < B and U + 15,000 < T. `begin-continuation`/`retry-continuation` still reject blocked, unchecked or explicitly unverified budgets. Do not reset ready state or creation history to bypass these guards. A real capacity shortage calls for a smaller handoff or manual resolution, not repeated creation.
 
-These flags record evidence, not settings changes. Check `status` for `compaction_budget`. Another process's config, API capacity, another model's history, or `body_after_prefix` does not verify this chat's budget. Owner retries retain the lower cap; successors verify their own runtime budget.
-
-Missing, stale, mismatched or incompatible native telemetry yields `budget_evidence.verified = false`. Stop new dispatch, reduce output, attempt a small-output budget check, and report the limitation if it remains unavailable. API counts cannot substitute for native accounting; no guessed threshold or automatic creation is allowed. `BodyAfterPrefix` currently requires manual verification rather than silently mixing counting scopes. If `R >= B`, set `handoff_budget_blocked`, preserve work, and report insufficient capacity.
-
-Unverified evidence includes a stable `reason` and available sample/usage timestamps. `last_verified` retains only the last verified sample, without nesting failure history. It is historical diagnosis, never current capacity evidence: it cannot complete startup, clear a block, permit dispatch/creation or supply a fallback threshold. A fresh matching native sample restores current evidence under the unchanged freshness/scope checks.
-
-Every new activation, reactivation and takeover starts with `startup_budget_checked = false`; owner retries preserve the check. A positive, verified native sample completes it. Initial/reactivated chats use the normal threshold so long existing history can be handed off. For a successor, `T - U <= 15,000` instead blocks automatic continuation, preventing a startup loop. Zero/unknown counts do not complete the check.
-
-A blocked session stays blocked across repeated tools and recovery until valid positive usage shows `R < B` and `U + 15,000 < T`, after a larger budget or smaller context. Unknown/zero counts cannot clear it. A compact event before startup verification must check the same budget before requesting handoff; missing evidence defers that request. `begin-continuation` cannot grant creation while blocked or unchecked. Existing `ready` handoffs remain read-only; do not reset state to evade the guard. A user-authorized manual resolution remains possible after independently checking capacity and stopped writers.
-
-Budget updates use the existing lock. A pending handoff is not revoked by a later budget check; once budget-blocked, a handoff request cannot bypass that state. Ordinary compaction still initiates recovery handoff when no guard applies. This is a fallback policy, not a guarantee against earlier compaction.
-
-Before starting a heavy gate, compare verified remaining budget with observed context growth and expected check duration. If it is unlikely to reach a useful checkpoint, hand off before launching it. While an owned check runs on frozen inputs, use bounded waits and milestone/failure output so it can finish without repeated status, budget or receipt inspection. If it must be interrupted, preserve its exact candidate, log, real exit/interruption and unfinished scope; it is not a pass. This scheduling guidance does not change T, permit orphaned jobs or relax the stopped-writers requirement. At T, stop new dispatch/business writes and follow Prepare.
-
-Verified incident, 2026-10-14: this installation's native row `6289369` recorded `U=780,878`, `C=780,000`, `W=828,400`, `Total`, and `token_limit_reached=true`. The same chat's rollout line 1907 reported API `last_token_usage=419,131`. Compaction followed the native 780K limit; 419K was a different counter, not an early compaction threshold. Regression fixtures retain these accounting fields, without treating this incident as a universal budget.
+A verified lower cap can be recorded at activation with `--compact-limit <LIMIT> --compact-model <MODEL>`. These are evidence flags, not settings changes, and cannot enlarge native capacity. Ordinary compaction remains a fallback; neither telemetry nor this Skill guarantees zero compaction.
 
 ## Prepare
 
 1. Stop dispatch. Have every active agent preserve results and stop writing; verify each writer. Unknown activity prevents release.
-2. Reconcile and persist [current package entries](check-evidence.md#keep-one-current-evidence-entry). Before replacing a received Handoff, ensure it has been [archived](#archive). Generate `.codegraph/HANDOFF.md` from those entries and the plan: objective/acceptance, original authority/constraints and scoped approvals/fallback conditions, role choices, old owner ID, baselines and user/task changes, valid findings/gaps, unfinished work, stopped writers, next actions/owners and absolute evidence indexes. Detailed history remains in evidence files.
+2. Persist the [current package state](check-evidence.md#handoff), archiving a received Handoff before replacement. Write `.codegraph/HANDOFF.md` as a short operational snapshot: objective and remaining acceptance, original authority source/latest limits, current owner/workspace/candidate, stopped writers, blockers and next executable action. Link necessary evidence; omit historical digest inventories, repeated policy and completed investigations. Aim for a page of current state, adding only indispensable safety details. Reuse these entries rather than authoring a second report.
 3. Once complete and ready to leave business execution, run:
 
 ```bash
@@ -158,7 +145,7 @@ Before any business write, verify original authority, actual model/effort, start
 python3 "<SKILL_DIR>/scripts/session_hook.py" activate --root "<ROOT>" --resume-from "<OLD_SESSION_ID>" --handoff-id "<HANDOFF_ID>"
 ```
 
-Append verified [budget flags](#budget), or omit them and obtain native evidence with `check-budget`. The lock validates the ready owner, ID, document digest, and recorded successor when present. Only one successor wins; retrying the same successful takeover preserves its settings and startup check. Only successful activation permits writing. Archive next, update the current plan, and verify startup budget before assigning unfinished execution to a worker according to [Execution boundaries](execution-boundaries.md).
+Append verified [budget flags](#budget), or omit them and obtain native evidence with `check-budget`. The lock validates the ready owner, ID, document digest, and recorded successor when present. Only one successor wins; retrying the same successful takeover preserves its settings and startup check. Only successful activation permits writing. Archive next and update the current plan. Assign only unfinished execution according to [Execution boundaries](execution-boundaries.md); inspect budget evidence once, without making telemetry recovery a business gate. Do not re-review accepted candidates merely because ownership changed.
 
 ## Reconcile
 
@@ -198,14 +185,14 @@ Run `session_hook.py config` to print definitions; installation and trust steps 
 
 | Event | Matcher | Purpose |
 | --- | --- | --- |
-| `PostToolUse` | All tools | Check native budget and remind about unfinished handoff. |
+| `PostToolUse` | All tools | Check native budget; emit a new handoff request or the first telemetry warning, not repeated reminders. |
 | `SessionStart` | `^(startup\|compact\|resume)$` | Check startup/resume budget; compact starts fallback recovery when no guard applies. |
 | `UserPromptSubmit` | All prompts | Recheck budget when the user continues an existing chat. |
 | `PreCompact` | `^(auto\|manual)$` | Report both counters and actual limit; observe without blocking or mutating ownership. |
 
 Current [official hooks](https://learn.chatgpt.com/docs/hooks#precompact) support `PreCompact` with `continue: false`, which stops the turn before compaction. This Skill emits only observational `systemMessage`: blocking would also prevent the coordinator's next model request, and hooks cannot create the continuation themselves. Enable a blocker only after verifying an authorized recovery path in that client; keep post-compaction recovery. Replace only this Skill's obsolete handler, preserving unrelated hooks and shared groups. Register each handler once and trust its current definition through the client; never edit trust storage directly.
 
-The transcript's initial `session_meta.id` must match the actual session, excluding subagents that share the parent's event ID/cwd. Ordinary chats are silent; a previous owner receives only a stop-writing reminder. Recovery normally reads identity only; startup or blocked-budget recovery also verifies usage. Budget checks scan rollout metadata and query one native sample.
+The transcript's initial `session_meta.id` must match the actual session, excluding subagents that share the parent's event ID/cwd. Ordinary chats are silent; pending-handoff/previous-owner reminders appear on session recovery or new user input, not after every tool. Recovery normally reads identity only; startup or blocked-budget recovery also verifies usage. Budget checks scan rollout metadata and query one native sample.
 
 Missing/unverifiable logs do not trigger guessed handoffs. Rollout/native database formats are not stable APIs; revalidate them on client upgrades. Hooks cannot wake stopped agents or guarantee recovery across differences in trust, capabilities, logs or service behavior. [Input contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
 
@@ -213,6 +200,6 @@ Missing/unverifiable logs do not trigger guessed handoffs. Rollout/native databa
 
 Reading v1 never rewrites it. Authorized owner mutations upgrade it to v2. Legacy `ready` must be upgraded by the old legitimate owner with `prepare-handoff --writers-stopped`; it keeps the digest and gets creation `unknown`, not a fresh creation permit. Reconcile before recording a known successor or continuing manually. If the old chat is unavailable, independently verify stopped writers before any necessary operation with the verified old ID.
 
-`startup_budget_checked` is an optional v2 boolean. Missing means an older active session. Reads preserve it; new activation/reactivation/takeover initializes it, owner retries preserve it. `budget_evidence` is optional; an explicitly unverified record blocks creation even after an earlier successful startup check. Invalid state types fail without rewriting.
+`startup_budget_checked` is an optional v2 boolean. Missing means an older active session. Reads preserve it; new activation/reactivation/takeover initializes it, owner retries preserve it. `budget_evidence` is optional; an explicitly unverified record blocks automatic creation even after an earlier successful startup check, but does not block ordinary authorized work. Invalid state types fail without rewriting.
 
 Before updating, back up source, installation, and any configuration being changed. Complete or independently verify stopped in-flight handoffs before reverting scripts. Older code may not honor newer guards: preserve state and Handoff snapshots, and resolve blocked/unchecked sessions before rollback. Never clear creation history or ownership to bypass errors. Script tests and document checks do not establish native end-to-end continuation.

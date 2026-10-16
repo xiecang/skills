@@ -5,10 +5,10 @@ A Codex Skill for scoped multi-model work, risk-based review, evidence reuse, an
 ## Requirements
 
 - Local Codex on macOS or Linux, Python 3.9+, and supported/trusted command hooks.
-- Alibaba `open-code-review-delegate` and the `ocr delegate` CLI. No separate OCR model configuration is needed. Additional review Skills are optional, used only when explicitly requested.
+- Follow user/project review-tool requirements. Alibaba `open-code-review-delegate` is optional otherwise, useful for code scope/rules in Git; runtime reads and non-Git delivery bookkeeping need no OCR.
 - For automatic continuation, a client with `create_thread` and access to the same saved local project. Pure CLI use does not gain these client tools from this Skill.
 
-Execution policy has one entrypoint: [SKILL.md](SKILL.md). It routes to [execution boundaries](references/execution-boundaries.md) for delegation/acceptance, [check evidence](references/check-evidence.md) for frozen inputs and verification stopping, and [session lifecycle](references/session-lifecycle.md) for authorization, budgets and handoff. This README covers setup and maintenance.
+Execution policy has one entrypoint: [SKILL.md](SKILL.md). It routes to [execution boundaries](references/execution-boundaries.md) for useful delegation and real decision points, [check evidence](references/check-evidence.md) for proportionate evidence and optional snapshot tooling, and [session lifecycle](references/session-lifecycle.md) for long-task handoff. This README covers setup and maintenance.
 
 ## Validate the source
 
@@ -48,7 +48,7 @@ A document-only update does not require registering hooks again. Script updates 
 
 ## Use
 
-Add the project to the desktop App, start a local chat from that project, and select the coordinator model/effort specified by the Skill or your explicit override. For example:
+Start in the project and use the role defaults or an explicit model/effort override. Direct work is allowed when delegation adds no benefit; small tasks need no session registration. For long tasks using automatic continuation, add the project to the desktop App and start a local chat there. For example:
 
 ```text
 $agent-orchestrator
@@ -71,7 +71,7 @@ python3 "$task_skill_dir/scripts/session_hook.py" status --root "/absolute/proje
 
 `agent-orchestrator.config.toml` is an optional CLI profile, not a hook installer or automatic Skill invocation. Copy it to `$CODEX_HOME/agent-orchestrator.config.toml` (default `~/.codex/agent-orchestrator.config.toml`) and select it with `codex --profile agent-orchestrator` if wanted. Installation alone does not load it.
 
-Configured maxima and API usage counters do not prove this chat's remaining context. [Budget](references/session-lifecycle.md#budget) defines native telemetry, thresholds, startup checks and loop protection.
+Configured maxima and API usage counters do not prove this chat's remaining context. [Budget](references/session-lifecycle.md#budget) defines native telemetry, thresholds and creation-loop protection. Missing/stale samples produce one advisory per episode; ordinary authorized work continues without polling. Automatic continuation still needs verified capacity, and confirmed handoff/ownership restrictions still apply.
 
 ## Files and maintenance
 

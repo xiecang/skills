@@ -59,7 +59,7 @@ class RoleContractTests(unittest.TestCase):
     def test_complete_release_stays_with_worker_and_blocked_gate_holds(self):
         result = self.answer("release", {
             **{step: "worker" for step in ("build", "run_scanners", "invoke_gate", "deploy", "trial", "cleanup")},
-            "analyze_findings": {"expert", "reviewer"}, "verify_candidate": "coordinator",
+            "analyze_findings": {"worker", "expert", "reviewer"}, "verify_candidate": "coordinator",
             "decide_release": "coordinator"})
         self.assertIs(result["can_proceed_now"], False)
         self.assertIs(result["retain_worker_for_remaining_stages"], True)
@@ -170,7 +170,7 @@ class RoleContractTests(unittest.TestCase):
 
     def test_delegation_cannot_authorize_new_risk_or_waive_a_gate(self):
         result = self.answer("new_risk", {
-            "analyze_findings": {"expert", "reviewer"}, "fix": "worker", "run_checks": "worker",
+            "analyze_findings": {"worker", "expert", "reviewer"}, "fix": "worker", "run_checks": "worker",
             "invoke_gate": "worker", "verify_authority": "coordinator",
             "decide_release": "coordinator", "deploy": "worker"})
         self.assertIs(result["can_proceed_now"], False)
@@ -254,14 +254,15 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["retain_future_delivery_gates"], True)
         self.assertIs(result["repeat_full_unchanged_source_review"], False)
 
-    def test_last_verified_budget_is_diagnostic_only_until_current_sample_recovers(self):
+    def test_stale_budget_does_not_block_work_or_authorize_automatic_creation(self):
         result = self.answer("unverified_budget_history", {"diagnose_and_refresh_budget": "coordinator",
             "decide_new_dispatch": "coordinator", "preserve_owned_execution": "worker"})
-        self.assertIs(result["suspend_new_dispatch"], True)
+        self.assertIs(result["suspend_new_dispatch"], False)
         self.assertIs(result["allow_automatic_creation"], False)
         self.assertIs(result["use_history_as_current_capacity"], False)
         self.assertIs(result["preserve_last_verified_history"], True)
         self.assertIs(result["relax_native_freshness_checks"], False)
+        self.assertIs(result["repeat_manual_budget_check"], False)
 
     def test_complete_acceptance_advances_without_repeated_verification(self):
         result = self.answer("verification_stop", {
@@ -287,6 +288,47 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["repeat_manual_budget_check"], False)
         self.assertIs(result["suspend_new_dispatch"], False)
         self.assertIs(result["relax_native_freshness_checks"], False)
+
+    def test_unchanged_authorized_retry_reuses_runner_without_internal_signoff(self):
+        result = self.answer("unchanged_release_retry", {
+            action: "worker" for action in (
+                "validate_execution_inputs", "execute_attempt", "inspect_runtime_result")})
+        self.assertIs(result["reuse_reviewed_runner"], True)
+        self.assertIs(result["repeat_incremental_review"], False)
+        self.assertIs(result["create_coordinator_gate"], False)
+        self.assertIs(result["must_check_target_and_authority"], True)
+        self.assertIs(result["allow_retry"], True)
+
+    def test_bookkeeping_does_not_become_an_ocr_or_certificate_gate(self):
+        result = self.answer("metadata_only_delivery", {
+            "update_evidence_index": "worker", "finish_delivery": {"worker", "coordinator"}})
+        self.assertIs(result["ocr_required"], False)
+        self.assertIs(result["repeat_incremental_review"], False)
+        self.assertIs(result["new_acceptance_certificate"], False)
+
+    def test_multistep_direct_work_does_not_require_extra_roles(self):
+        result = self.answer("direct_multistep", {action: "coordinator" for action in (
+            "implement", "run_checks", "review_candidate", "deliver_diff")})
+        self.assertIs(result["needs_worker"], False)
+        self.assertIs(result["needs_integration_worker"], False)
+        self.assertIs(result["commit_authorized"], False)
+        self.assertEqual(result["reviewer_kind"], "self_review")
+
+    def test_plan_collision_is_not_a_work_or_permission_blocker(self):
+        result = self.answer("task_state_collision", {
+            "choose_plan_location": "coordinator", "perform_independent_work": "coordinator"})
+        for field in ("block_for_plan_collision", "overwrite_other_task_state",
+                      "requires_user_exception", "allow_automatic_creation"):
+            self.assertIs(result[field], False)
+
+    def test_unknown_remote_result_still_requires_reconciliation_and_retry_authority(self):
+        result = self.answer("unknown_remote_attempt", {
+            "reconcile_remote_state": "worker", "continue_independent_task": {"worker", "coordinator"},
+            "decide_retry": "coordinator"})
+        self.assertIs(result["allow_retry"], False)
+        self.assertIs(result["create_coordinator_gate"], False)
+        self.assertIs(result["continue_independent_work"], True)
+        self.assertIs(result["preserve_attempt_receipts"], True)
 
 
 class RoleGraderValidationTests(unittest.TestCase):

@@ -455,6 +455,8 @@ def hook_output(event):
                 + str(event.get("trigger", "unknown")) + "）：" + detail
                 + "；本 hook 不阻断压缩，压缩后按恢复交接处理。"}
     if pending:
+        if name == "PostToolUse":
+            return None
         return {"hookSpecificOutput": {"hookEventName": name,
                                        "additionalContext": recovery_context(root, state, sid)}}
     reason = "主会话已意外压缩，进入恢复交接"
@@ -462,14 +464,17 @@ def hook_output(event):
         diagnostics = {}
         sample = native_budget(event.get("transcript_path"), sid, context, model, diagnostics)
         if sample is None:
-            set_budget_blocked(root, sid, False, expected_compaction=state.get("compaction_budget"),
-                               evidence=dict(diagnostics, verified=False))
+            updated = set_budget_blocked(
+                root, sid, False, expected_compaction=state.get("compaction_budget"),
+                evidence=dict(diagnostics, verified=False))
+            if updated is None or state.get("budget_evidence", {}).get("verified") is False:
+                return None
             return {"hookSpecificOutput": {"hookEventName": name, "additionalContext":
                     "agent-orchestrator：原生计数或运行时窗口未知，实际压缩预算未核实。"
                     "原因=" + diagnostics.get("reason", "native_sample_unavailable") + "。"
-                    "status 中 last_verified 仅为历史诊断，不能恢复当前预算许可。"
-                    "先停止新派发，执行一次小输出预算检查；不要用 API 单次或累计用量代替。"
-                    "日志缺失、过期或口径不兼容时报告限制，不推算固定交接线。"}}
+                    "继续已授权工作并保存进度；不要为遥测重复轮询或修复证据。"
+                    "自动创建接续聊天仍需有效预算，last_verified 只作历史诊断；"
+                    "持续不可用时使用原生压缩或手动交接，不用 API 用量猜测交接线。"}}
         tokens, window = sample["tokens"], sample["window"]
         verified = state.get("compaction_budget") if state["version"] == 2 else None
         compact_limit = sample["limit"]
@@ -489,7 +494,7 @@ def hook_output(event):
                     "停止新派发，保存现场并报告容量不足；先缩短交接或核对模型窗口，不自动反复创建聊天。"}}
         if state.get("startup_budget_checked") is False:
             return {"hookSpecificOutput": {"hookEventName": name, "additionalContext":
-                    "agent-orchestrator：接续首次预算尚未核实。等待有效窗口和正数计数，再判断是否交接；"
+                    "agent-orchestrator：接续首次预算尚未核实。正常授权工作继续；有效正数计数到达后再判断交接，"
                     "不自动创建下一聊天。"}}
         if not compact and tokens < threshold:
             return None
