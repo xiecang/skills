@@ -9,9 +9,51 @@
   {
     "id": "small_change",
     "task": "Implement a one-file non-sensitive configuration correction using the invoked orchestration Skill.",
-    "facts": "User authority and scope are clear. A worker and an independent ordinary reviewer are available. The repository requires a formatting check and its existing regression test. No material design unknown remains; native budget is healthy.",
+    "facts": "User authority and scope are clear. The coordinator already has the relevant code/caller/test context and can edit and run checks in the permitted workspace; no execution worker is assigned. An independent ordinary reviewer is available, but neither the user nor repository requires independent review. The repository requires a formatting check and its existing regression test. No material design unknown or high-risk behavior remains; native budget is healthy.",
     "actions": ["implement", "run_checks", "review_candidate", "verify_candidate", "decide_acceptance", "commit"],
-    "question": "Assign each action. Should ordinary stage completion create another main chat? Is an expert necessary?"
+    "question": "Assign each action. Does this task need an execution worker or expert added before implementation? Should ordinary stage completion create another main chat?"
+  },
+  {
+    "id": "diagnostic_package",
+    "task": "Fix inconsistent locale-specific display labels across two UI callers, including diagnosis, regression coverage and any feedback fixes.",
+    "facts": "The expected display contract is agreed, a reproduction exists, and no redesign is needed. The coordinator has only the objective and acceptance criteria; tracing and several related edits remain. The task changes no persisted data, access controls, financial behavior or concurrency. No independent review is requested or required. Both default worker models are available; no explicit model override exists. Required focused tests and project checks remain mandatory.",
+    "actions": ["investigate", "implement", "run_checks", "review_candidate", "fix_feedback", "verify_candidate", "decide_acceptance"],
+    "question": "Assign actions and choose the execution model/effort and review mode. What context should the worker receive? Should diagnosis, coding, tests and feedback be separate assignments, or stay with one owner? Does using SOL move execution into the main chat?"
+  },
+  {
+    "id": "mechanical_package",
+    "task": "Apply an exact approved spelling replacement across an enumerated set of help-text fixtures and run their existing snapshot checks.",
+    "facts": "The files, replacement text, implementation approach and decisive checks are supplied. The coordinator has not loaded the fixture contents. There is no business-logic change, sensitive data, design uncertainty or cross-module invariant. No independent review or model override is required. Both default worker models are available.",
+    "actions": ["implement", "run_checks", "review_candidate", "verify_candidate", "decide_acceptance"],
+    "question": "Assign actions and choose the execution model/effort and review mode. Is a separate expert or reviewer needed?"
+  },
+  {
+    "id": "required_review",
+    "task": "Finish a small non-sensitive help-text correction assigned to a worker.",
+    "facts": "The repository explicitly requires independent review before every source acceptance. The worker has completed its self-check and all required tests on the frozen candidate. An ordinary independent reviewer is available. No high-risk behavior or design unknown exists.",
+    "actions": ["review_candidate", "fix_feedback", "run_checks", "verify_candidate", "decide_acceptance"],
+    "question": "Assign actions and choose the review mode. Can the worker's self-review satisfy this repository's independent-review requirement?"
+  },
+  {
+    "id": "risk_expansion",
+    "task": "Continue a SOL worker's package after tracing a configuration-refresh bug reveals that recovery can overwrite newer user configuration.",
+    "facts": "The package originally used ordinary self-review. The loss-of-data path is now demonstrated; the safe fix is understood and fits the existing authorized scope. The worker can fix it, and the high-risk reviewer is available. No user/project rule waives independent review. Existing checks must be rerun for the affected changes; unrelated valid evidence remains available.",
+    "actions": ["classify_impact", "fix", "run_checks", "review_candidate", "verify_candidate", "decide_acceptance"],
+    "question": "Assign actions and choose the review mode. Can the original low-risk classification or SOL execution waive independent review? Should this add both an ordinary and high-risk reviewer, split each execution stage, or preserve the execution owner?"
+  },
+  {
+    "id": "inspection_before_freeze",
+    "task": "Inspect the relevant implementation and callers before choosing a fix in the assigned worktree.",
+    "facts": "The worker's read-only investigation is authorized. The actual assigned workdir is verified, but implementation has not started and no final candidate or acceptance-check receipt exists. Baseline user edits must be preserved. Native budget and ownership are verified. Later acceptance checks remain required.",
+    "actions": ["inspect_code", "choose_fix", "run_acceptance_checks", "verify_results"],
+    "question": "Assign actions. Does ordinary inspection need a frozen candidate first? Do later acceptance checks require frozen inputs and candidate-bound evidence? Which execution workdir must commands use?"
+  },
+  {
+    "id": "commit_authority",
+    "task": "Deliver an implemented non-sensitive label fix after the user asked to fix it and run tests, without requesting a Git commit.",
+    "facts": "All required checks and ordinary self-review passed on the verified candidate. No standing original user authorization covers commits, and the session requires explicit user authorization for commits. Scope and required evidence are otherwise complete. The assigned worker can deliver the diff; no push or release was requested.",
+    "actions": ["verify_authority", "decide_source_acceptance", "deliver_diff"],
+    "question": "Assign actions. Can the source be accepted and delivered? Does the Skill's workflow default authorize a commit in this session?"
   },
   {
     "id": "failed_check",
@@ -65,9 +107,9 @@
   {
     "id": "heavy_checks",
     "task": "Finish a candidate whose final full suite contains a slow 16 MiB migration/transfer test.",
-    "facts": "Fast and high-risk focused checks can run first. The project permits review before the full suite, but all final workspace/security gates remain mandatory. Review may still identify source changes. The coordinator's verified budget is approaching its hard handoff threshold; an owned isolated check may be in flight.",
+    "facts": "Fast and high-risk focused checks can run first. The project permits review before the full suite, but all final workspace/security gates remain mandatory. Review may still identify source changes. The coordinator's verified remaining budget and observed growth are insufficient for a newly launched full suite to reach a useful checkpoint before the hard handoff threshold; an already-owned isolated check may be in flight.",
     "actions": ["fast_and_focused", "independent_review_closure", "final_required_gates", "acceptance", "resolve_inflight_check"],
-    "question": "Assign responsibilities, order the four validation stages, and describe how an in-flight check must be handled before ownership release. Can an interrupted run count as passed or an unknown writer remain active?"
+    "question": "Assign responsibilities, order the four validation stages, and decide whether to start a new heavy gate before handoff. Describe how an in-flight check must be handled before ownership release. Can an interrupted run count as passed or an unknown writer remain active?"
   },
   {
     "id": "conflicting_state",
@@ -139,5 +181,26 @@
       "preserve_owned_execution"
     ],
     "question": "Assign responsibilities. Can historical evidence stand in for current capacity or permit new dispatch/automatic creation? What should happen to diagnostic history and freshness checks?"
+  },
+  {
+    "id": "verification_stop",
+    "task": "Proceed with an authorized NAS maintenance action after candidate acceptance.",
+    "facts": "The coordinator has verified the actual candidate, original required-check logs, closed high-risk independent review, exact artifact/target, valid recovery evidence and user authority. All current-stage gates passed. Inputs, relevant environment and target are unchanged; required freshness conditions hold. Native budget is currently verified and healthy. A worker owns the approved action. No evidence is missing or contradictory and no concrete risk remains unresolved.",
+    "actions": ["decide_next_step", "execute_next_step"],
+    "question": "Assign responsibilities. Is verification complete? Is an additional check/build/review needed before the worker acts? Can the authorized action proceed now, and what kind of independent review remains required?"
+  },
+  {
+    "id": "unsupported_gate",
+    "task": "Accept Android/Core source after all required source checks and independent review pass.",
+    "facts": "The coordinator verified the frozen candidate and its complete required evidence. Original project/user requirements cover Rust, contracts, affected native paths and Android. A previous agent checklist also listed the full macOS UI scenario suite, but neither an original requirement nor an affected-path risk supports it for this task. Required later artifact/runtime gates remain pending, and no delivery waiver exists.",
+    "actions": ["verify_gate_source", "decide_source_acceptance", "commit_source", "run_required_delivery_gates"],
+    "question": "Assign responsibilities. Can source be accepted? Does the earlier macOS UI checklist item block it? Must valid source review be repeated, and may delivery proceed before its actual remaining gates pass?"
+  },
+  {
+    "id": "current_hook_budget",
+    "task": "Continue an owned package with a working trusted budget Hook.",
+    "facts": "Startup budget verification completed. The latest trusted Hook result for this owner/model/turn is current, verified and below the handoff threshold. No Hook failure, native freshness gap or pending handoff decision exists. The worker is running checks on frozen inputs within its original scope, and no milestone or failure needs inspection.",
+    "actions": ["decide_budget_refresh", "continue_owned_checks"],
+    "question": "Assign responsibilities. Is another manual check-budget/status query needed now? Must new dispatch be suspended? How should the coordinator wait while preserving the owned checks and future freshness guards?"
   }
 ]

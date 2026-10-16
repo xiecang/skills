@@ -8,7 +8,7 @@ Commands use `CODEX_THREAD_ID`. If absent, add `--session "<verified actual call
 
 ## Authorization
 
-Verify original user authorization, task scope, and latest restrictions before automatic continuation. If the original context is missing, use `read_thread` on its source; an agent-written summary or state boolean is not authorization. Carry the verified evidence into the successor. Unverifiable authority means manual handoff, not broader permission.
+Verify original user authorization, task scope, and latest restrictions before automatic continuation. Carry the original excerpts and source locations into the successor, which checks the needed original evidence and any newer restrictions without replaying intervening chat histories. If original evidence is missing, use `read_thread` on its source; an agent-written summary or state boolean is not authorization. Unverifiable authority means manual handoff, not broader permission.
 
 Local preference for this installation's user, recorded on 2026-10-11 in chat `01a12963-7c28-7180-aaaa-f979067a8ca0`:
 
@@ -42,6 +42,8 @@ python3 "<SKILL_DIR>/scripts/session_hook.py" check-budget --root "<ROOT>" --mod
 
 ## Budget
 
+After startup verification, rely on the trusted Hook's current verified budget evidence. Refresh manually for missing/stale evidence, a Hook failure or a handoff decision; a healthy current Hook result needs no duplicate `check-budget`/`status` polling. Missing telemetry still suspends new dispatch under the rules below; an unchanged failed sample calls for reporting the gap, not a polling loop.
+
 Use the native runtime's **active-context accounting**, not `last_token_usage.total_tokens` or cumulative API usage. The hook reads the matching chat's `post sampling token usage` sample from `$CODEX_HOME/logs_2.sqlite` in read-only mode, locating it beside the rollout's `sessions` directory. The sample must match the actual model and current turn, follow the latest turn/compaction epoch, and remain current relative to the rollout's latest usage record.
 
 For supported `Total` scope, `U = total_usage_tokens = auto_compact_scope_tokens`, `W = full_context_window_limit`, and `C = auto_compact_scope_limit`. These are loaded runtime values; configuration files alone do not prove them. State `budget_evidence` records the counters, window, limit, database path and row ID. `api_tokens` is diagnostic only.
@@ -74,14 +76,14 @@ A blocked session stays blocked across repeated tools and recovery until valid p
 
 Budget updates use the existing lock. A pending handoff is not revoked by a later budget check; once budget-blocked, a handoff request cannot bypass that state. Ordinary compaction still initiates recovery handoff when no guard applies. This is a fallback policy, not a guarantee against earlier compaction.
 
-Before the hard threshold, use verified remaining budget, observed request growth and check duration to stop starting heavy gates that are unlikely to reach a useful checkpoint. Prefer finishing an owned check on frozen inputs while keeping status output bounded. If it must be interrupted, preserve its exact candidate, log, real exit/interruption and unfinished scope; it is not a pass. This scheduling guidance does not change T, permit orphaned jobs or relax the stopped-writers requirement. At T, stop new dispatch/business writes and follow Prepare.
+Before starting a heavy gate, compare verified remaining budget with observed context growth and expected check duration. If it is unlikely to reach a useful checkpoint, hand off before launching it. While an owned check runs on frozen inputs, use bounded waits and milestone/failure output so it can finish without repeated status, budget or receipt inspection. If it must be interrupted, preserve its exact candidate, log, real exit/interruption and unfinished scope; it is not a pass. This scheduling guidance does not change T, permit orphaned jobs or relax the stopped-writers requirement. At T, stop new dispatch/business writes and follow Prepare.
 
 Verified incident, 2026-10-14: this installation's native row `6289369` recorded `U=780,878`, `C=780,000`, `W=828,400`, `Total`, and `token_limit_reached=true`. The same chat's rollout line 1907 reported API `last_token_usage=419,131`. Compaction followed the native 780K limit; 419K was a different counter, not an early compaction threshold. Regression fixtures retain these accounting fields, without treating this incident as a universal budget.
 
 ## Prepare
 
 1. Stop dispatch. Have every active agent preserve results and stop writing; verify each writer. Unknown activity prevents release.
-2. Reconcile one current entry per package against its actual frozen candidate and verified check receipts as described in [Check evidence](check-evidence.md); persist continuity evidence in the project's approved durable location. Resolve stale/conflicting status before dependent execution. Before replacing a received Handoff, ensure it has been [archived](#archive). Generate one complete `.codegraph/HANDOFF.md` synopsis from current entries: objective/acceptance, original authority/constraints and scoped approvals/fallback conditions, role choices, old owner ID, workspaces/baselines/candidate IDs, user and task changes, valid findings/gaps, actual checks and interruptions, unfinished work, stopped writers, next actions/owners, and absolute evidence indexes. Keep detailed history in evidence files instead of copying it into multiple current-status sections.
+2. Reconcile and persist [current package entries](check-evidence.md#keep-one-current-evidence-entry). Before replacing a received Handoff, ensure it has been [archived](#archive). Generate `.codegraph/HANDOFF.md` from those entries and the plan: objective/acceptance, original authority/constraints and scoped approvals/fallback conditions, role choices, old owner ID, baselines and user/task changes, valid findings/gaps, unfinished work, stopped writers, next actions/owners and absolute evidence indexes. Detailed history remains in evidence files.
 3. Once complete and ready to leave business execution, run:
 
 ```bash
@@ -103,18 +105,13 @@ Use $agent-orchestrator to continue the same authorized task.
 Original user authority: <verbatim instruction and source chat>; latest restrictions: <facts>.
 Main workspace: <ROOT>; previous owner: <OLD_SESSION_ID>; handoff ID: <HANDOFF_ID>.
 Resolved coordinator: <MODEL> / <EFFORT>; basis: <verified user override or Skill default>.
-The create request passes these as top-level model and thinking. Verify the actual runtime values.
-Read the current plan, HANDOFF.md, and session state. Verify authority, startup directory, Git state,
-and that the old scheduler and all writers stopped. Preserve the ready handoff_id, handoff_sha256,
-and their read-result location before takeover; the new active state omits the old digest.
-Follow “Take over” in references/session-lifecycle.md, including this session's budget verification.
-After successful takeover, archive the received snapshot before updating the current plan.
-Reuse valid evidence and continue only unfinished work. Report failures without clearing ownership.
-Reconcile candidate/receipt identities and scoped original approvals; preserve immutable history,
-replace stale current entries, and avoid reopening unchanged approvals or completed investigations.
-Keep goal/authority, scheduling, key verification and decisions in the coordinator. Assign unfinished
-business execution to a worker with the accepted evidence and remaining decision checkpoints;
-do not take over its build/scan/deploy/cleanup loop in this new main chat.
+Verify actual model/effort against the resolved coordinator, whether the request used explicit
+overrides or verified matching client defaults. Read the current plan, HANDOFF.md and session state.
+Follow “Take over” and “Archive” in references/session-lifecycle.md, including authority, workspace,
+stopped-writer and startup-budget verification. Preserve the ready handoff_id, handoff_sha256 and
+their read-result location before activation; the new active state omits the old digest.
+Assign only unfinished execution using references/execution-boundaries.md and valid package evidence.
+Report failures without clearing ownership or rewriting received history.
 ```
 
 Generate the complete request; `--model` and `--thinking` are required and must contain the resolved values:
@@ -208,9 +205,9 @@ Run `session_hook.py config` to print definitions; installation and trust steps 
 
 Current [official hooks](https://learn.chatgpt.com/docs/hooks#precompact) support `PreCompact` with `continue: false`, which stops the turn before compaction. This Skill emits only observational `systemMessage`: blocking would also prevent the coordinator's next model request, and hooks cannot create the continuation themselves. Enable a blocker only after verifying an authorized recovery path in that client; keep post-compaction recovery. Replace only this Skill's obsolete handler, preserving unrelated hooks and shared groups. Register each handler once and trust its current definition through the client; never edit trust storage directly.
 
-The transcript's initial `session_meta.id` must match the actual session. This excludes subagents that share the parent's event ID/cwd. Ordinary chats are silent; a previous owner only receives a stop-writing reminder. Recovery normally reads identity only, except when startup or blocked-budget recovery requires usage verification.
+The transcript's initial `session_meta.id` must match the actual session, excluding subagents that share the parent's event ID/cwd. Ordinary chats are silent; a previous owner receives only a stop-writing reminder. Recovery normally reads identity only; startup or blocked-budget recovery also verifies usage. Budget checks scan rollout metadata and query one native sample.
 
-Missing/unverifiable logs do not trigger guessed handoffs. Rollout and native database formats are not stable APIs; revalidate them on client upgrades. Recovery normally checks identity only; ordinary budget checks scan rollout metadata and query one native sample. Hooks cannot wake stopped agents or guarantee recovery when trust, client capability, logs, or service behavior differs. [Input contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
+Missing/unverifiable logs do not trigger guessed handoffs. Rollout/native database formats are not stable APIs; revalidate them on client upgrades. Hooks cannot wake stopped agents or guarantee recovery across differences in trust, capabilities, logs or service behavior. [Input contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
 
 ## Compatibility and rollback
 

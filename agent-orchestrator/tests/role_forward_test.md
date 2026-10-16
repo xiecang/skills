@@ -15,7 +15,9 @@ Common answer fields:
 Where applicable, also return:
 
 - Boolean fields: `retain_worker_for_remaining_stages`, `needs_expert`, `replay_valid_completed_steps`, `accept_summary_without_evidence`, `blocked_execution`, `transfer_whole_package_to_coordinator`, `requires_user_risk_acceptance`. `blocked_execution` means any execution step is blocked; list such steps separately in an optional `blocked_steps` array.
-- `reviewer_kind`: `ordinary_independent` or `high_risk_independent`.
+- `reviewer_kind`: `self_review`, `ordinary_independent` or `high_risk_independent`.
+- `execution_model`, `execution_effort`: exact model/effort strings when the scenario asks for execution routing. `split_package_by_stage`, `needs_independent_reviewer`, `self_review_satisfies_requirement`: Boolean decisions where applicable.
+- `freeze_before_inspection`, `freeze_for_acceptance_checks`, `commit_authorized`: Boolean decisions for inspection/commit scenarios.
 - `worker_context`: `full_main_history`, `fresh_scoped_evidence` or `reuse_old_handle`.
 - `needed_evidence`: an array describing missing evidence; identify current-candidate check/review evidence as `current_candidate_checks` / `current_candidate_review`.
 - `direct_execution_exception`: an object with a nonempty `reason` and a `scope` array of exact action IDs.
@@ -29,5 +31,7 @@ Additional evidence/scheduling scenarios use these typed fields:
 - `main_context_payload`: `bounded_indexed_summary`, `all_raw_history` or `summary_without_evidence`.
 
 Recovery/stage/budget cases also use Boolean flags `allow_retry`, `preserve_attempt_receipts`, `use_verified_matching_client_defaults`, `verify_actual_successor_runtime`, `silently_change_model_or_effort`, `renewed_instruction_proves_noncreation`, `reset_ready_or_attempt_history`, `can_accept_source`, `can_deliver_now`, `retain_future_delivery_gates`, `repeat_full_unchanged_source_review`, `suspend_new_dispatch`, `allow_automatic_creation`, `use_history_as_current_capacity`, `preserve_last_verified_history`, `relax_native_freshness_checks`. `additional_attempt_limit` is an integer for additional creation attempts. Apply fields only to relevant scenarios.
+
+Verification/scheduling cases also use Boolean flags `verification_complete`, `additional_verification_needed`, `extra_gate_blocks_source`, `repeat_manual_budget_check`, `start_new_heavy_gate_before_handoff`.
 
 Use actual JSON booleans for all decision flags, not nulls, numbers, strings or arrays. Choose values independently; the format does not supply an intended decision. Run the behavioral grader with `ORCHESTRATOR_ROLE_RESPONSES` pointing to that file. Report any failures or ambiguities; missing or stale responses cannot count as completed role validation. These cases test planning decisions, not native tool execution or production safety results.

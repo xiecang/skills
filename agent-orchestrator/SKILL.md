@@ -1,36 +1,34 @@
 ---
 name: agent-orchestrator
-description: 按主协调者、专家、执行者和审阅者分工，拆分可并行子项，逐项审阅、修复并提交，通过 Handoff 交接长任务。适用于用户要求多模型协作或按依赖组织并行开发；讨论或编写本 Skill 时不启动开发流程。
+description: 按主协调者、专家和执行者分工，按任务难度选择模型、按风险安排独立审阅，通过 Handoff 交接长任务。适用于用户要求多模型协作或按依赖组织并行开发；讨论或编写本 Skill 时不启动开发流程。
 ---
 
 # Agent Orchestrator
 
-Coordinate the authorized task through scoped work, independent review, verification, and handoff. Optimize total effort without weakening acceptance criteria. Respond in the user's language. Discussing or editing this Skill does not start orchestration or register a business session.
+Coordinate authorized work through scoped execution, risk-based review and handoff. Respond in the user's language. Discussing or editing this Skill does not start orchestration or register a business session.
 
 ## Roles and authority
 
-| Role | Default model / effort | Responsibility and reuse boundary |
+| Role | Default model / effort | Responsibility |
 | --- | --- | --- |
 | Coordinator | `gpt-6.1-sol` / `xhigh` | Goals, authority, contracts, scheduling, key verification and decisions in the main chat. |
 | Expert | `gpt-6-astra` / `xhigh` | Resolve one material investigation or design problem; preserve findings for reuse. |
-| Worker | `gpt-6-luna` / `high` | Own one complete execution work package through fixes, checks, accepted commits and authorized follow-through. |
-| Reviewer | `gpt-6-luna` / `high`; high risk: `gpt-6-astra` / `xhigh` | Independently review the work package's candidates and affected rechecks. |
+| Worker | `gpt-6.1-sol` / `high`; bounded mechanical work: `gpt-6-luna` / `high` | Own a complete execution package through checks, review fixes and authorized follow-through. |
+| Reviewer, when required | `gpt-6-luna` / `high`; high risk: `gpt-6-astra` / `xhigh` | Independently review the work package's candidates and affected rechecks. |
 
-Resolve model and effort from verified original user instructions, then explicit role configuration, then this table. Client defaults, a previous chat's model, and agent-written summaries are not user overrides. Pass resolved values where the tool permits overrides. For the main chat, [Create a continuation](references/session-lifecycle.md#create-a-continuation) also covers verified matching client defaults and bounded recovery from definite preflight rejection; an unavailable or unverifiable model requires resolution, not silent substitution.
+Resolve model and effort from verified original user instructions, then explicit role configuration, then this table, within the actual tool's constraints. Client defaults, previous chats and agent summaries are not user overrides. Unavailable or unverifiable choices require resolution, not silent substitution. Main-chat request options are in [Create a continuation](references/session-lifecycle.md#create-a-continuation).
 
-Keep the reviewer independent of the worker and planning expert. A high-risk reviewer replaces the ordinary reviewer rather than adding a preliminary review. There is no separate commit agent.
+Models do not determine roles: a SOL worker has its own scoped context. Under these defaults, use Luna only for low-risk work with clear scope, approach and decisive checks, without unresolved design or cross-module invariants. Use SOL for diagnosis, multi-step changes requiring judgment and sustained fixes. Escalate an unsuitable explicit override under the precedence above.
 
-The coordinator owns goals and scope, verified user authority, shared contracts, dependency/concurrency decisions, exception resolution and acceptance or release decisions. It maintains the plan and handoff, dispatches agents, and verifies the critical evidence described below. Workers perform business execution; reviewers perform detailed independent review. Read [Execution boundaries](references/execution-boundaries.md) when dispatching work, assessing evidence, encountering a capability gap, or resuming unfinished execution after handoff.
+Read [Execution boundaries](references/execution-boundaries.md) before dispatch, acceptance, capability exceptions or resumed execution; it defines delegation inputs, result reporting and the coordinator's verification checklist.
 
-Coordinator verification includes original authority and its limits; the actual candidate/diff identity, including dirty and untracked inputs; required checks and review closure bound to that candidate; and, before external actions, the exact artifact, target, gate result and necessary recovery evidence. Inspect relevant diffs, original evidence and contradictory results as needed. Approval remains an accountable decision, not forwarding an agent's “passed” summary.
-
-Honor plan-only, review-only, manual-continuation, and no-commit requests. Otherwise, commit each accepted implementation subtask; this does not authorize push, merge, or history rewriting. Before registration or continuation, read [Authorization](references/session-lifecycle.md#authorization) and verify its applicability and the user's latest constraints. Preserve existing authorization; distributing this Skill grants none to another user.
+Honor original user authority and session/tool restrictions, including plan-only, review-only, manual-continuation and no-commit limits. Commit accepted work only when that authority covers commits; no Skill default grants push, merge or history-rewriting permission. Before registration or continuation, verify [Authorization](references/session-lifecycle.md#authorization), including the latest user constraints.
 
 ## Investigate and plan
 
-Use a short coordinator plan for a clear, local task. Assign an expert when material unknowns or cross-module design require investigation, especially in money, permissions, security, concurrent consistency or data migration. A known high-risk change still requires the high-risk independent reviewer; risk classification alone does not add a separate expert stage.
+The coordinator may execute a tiny, local, low-risk change whose relevant context is already available. Otherwise assign a worker. Add an expert only for a material design/diagnostic unknown beyond the execution owner's scope; high risk alone does not require an expert stage. All execution follows the review rules below.
 
-Assign relevant code/caller/test/configuration inspection and experiments to the worker or expert; the coordinator inspects what contract and acceptance decisions require. Validate only assumptions that could change the solution or cause substantial rework. Use a minimal experiment for runtime-dependent claims, in an authorized temporary or isolated workspace; preserve project files, user changes, and production data. Distinguish sourced facts, tested behavior, assumptions, and unverified claims. Stop investigating when the evidence is sufficient; unresolved critical assumptions make the plan conditional.
+The worker/expert inspects relevant code, callers, tests and configuration; the coordinator reads what decisions require. Validate assumptions that could change the solution or cause substantial rework. For runtime-dependent claims, use minimal experiments in authorized temporary/isolated workspaces, preserving project files, user changes and production data. Distinguish sourced facts, tested behavior and unknowns; stop when sufficient evidence supports the decision. Unresolved critical assumptions make a plan conditional.
 
 Close each investigation under a stable problem ID in the current plan:
 
@@ -40,35 +38,35 @@ Close each investigation under a stable problem ID in the current plan:
 | Still unknown | Exact gap, impact, and next minimal check; write “none” if resolved. |
 | Reopen when | Specific input/configuration/dependency changes, counterevidence, or invalidated evidence. |
 
-Reuse valid findings across agents and chats. Investigate only remaining questions or affected conclusions; a new chat alone does not invalidate evidence. Keep useful conclusions and indexes, not a running investigation diary.
+Reuse valid findings across agents and chats; investigate only remaining questions or affected conclusions.
 
-Plan work packages with stable IDs, an execution owner, deliverables, permitted files/interfaces/actions, dependencies, decision checkpoints, parallelism rationale, and acceptance checks. Group related execution around an accepted outcome: integration, build, gate invocation and authorized release/cleanup need an execution owner, not a return to the coordinator's shell at every stage. Resolve shared contracts before dispatching dependents. Account for locks, databases, test environments, and Git staging as well as file overlap. Record trade-offs, residual risks, and necessary rollback; blocked work must not be labelled executable.
+Define packages by independently acceptable outcomes or real interface, ownership or risk boundaries. Record a stable ID, owner, deliverables, permitted files/interfaces/actions, dependencies, checkpoints, acceptance checks, trade-offs and necessary rollback. Keep diagnosis, implementation, checks and feedback fixes with one owner. Resolve shared contracts before dispatch; parallelism must account for locks, databases, test environments and Git staging as well as file overlap. Blocked work is not executable.
 
 ## Schedule and track
 
 Only the coordinator dispatches agents and maintains the main workspace's `.codegraph/plan.md`. It holds current goals, authorization, role choices, decisions, investigations, dependencies, and subtask status. Replace superseded state instead of appending competing “latest” sections. Subagents neither delegate further nor maintain duplicate plans.
 
-Before work, record the workspace, branch, HEAD, and existing staged, unstaged, and untracked changes. A new worktree does not carry uncommitted inputs automatically. Follow [Start](references/session-lifecycle.md#start) for registration and native budget verification before dispatch or business writes, including reactivation in an existing chat. Bind every execution call to its actual workdir and frozen inputs using [Check evidence](references/check-evidence.md); do not overwrite another task's files or CodeGraph indexes.
+Before dispatch or business writes, follow [Start](references/session-lifecycle.md#start) to record the baseline, register ownership and verify native budget, including reactivation in an existing chat. Verify each command's actual workdir; freeze inputs for acceptance checks as described in [Check evidence](references/check-evidence.md), not for ordinary inspection or editing. A new worktree does not carry uncommitted inputs automatically; preserve user changes and other tasks' files/indexes.
 
-- Run at most **2 subagents concurrently** by default; allow **3** only with independent tasks, isolated workspaces, and no resource contention, recording the rationale. Respect a lower runtime limit. Experts and reviewers count; the coordinator does not. Queue excess work and treat unknown activity as occupying a slot. This is not a lifetime creation limit.
+- Run at most **2 subagents concurrently**; allow **3** only for independent tasks in isolated workspaces without resource contention, recording why. Respect a lower runtime limit. Experts/reviewers count; the coordinator does not. Queue excess work; unknown activity occupies a slot.
 - Parallel implementation uses isolated workspaces. In a shared workspace, serialize writes, review, and commits; read-only investigation may use available slots.
-- New work packages get fresh contexts (`fork_turns: none` when supported). Reuse the same worker and reviewer through fixes, rechecks and authorized remaining stages; an intermediate commit or user-decision wait does not finish an incomplete package. End the assignment when the package is accepted/completed or explicitly reassigned. Do not copy the main chat's full history.
+- New packages get fresh scoped contexts (`fork_turns: none` when supported). Retain their worker and any reviewer through fixes, rechecks and authorized remaining stages. An intermediate commit or decision wait does not end an unfinished assignment. Explicit reassignment or unavailable handles after handoff require a new owner with valid findings/evidence, not the main chat's full history.
 
-Dispatch the package ID, objective, acceptance criteria, real baseline/workspace, permitted execution and decision checkpoints, contracts, valid findings/gaps, user constraints, checks and recovery requirements. A worker may pause at a checkpoint without transferring the remaining execution to SOL. Workers return a bounded result summary: candidate identity, actual check/review status, unresolved items or required decision, next authorized step, and absolute evidence indexes. Store detailed logs and analysis with the evidence; load them into the main chat only for a specific verification or exception.
-
-The coordinator verifies acceptance evidence and exceptions; routine reproduction, full check/build/scan runs and detailed findings/disposition work stay with the assigned worker, expert or reviewer. Missing or conflicting evidence returns to its owner for correction or escalation. Update status and SHA after acceptance. Unlock dependent work only when its workspace contains the required commit or explicitly delivered contract.
+Use the [dispatch and reporting contract](references/execution-boundaries.md#dispatch-and-checkpoints). Update status and SHA after acceptance. Unlock dependent work only when its workspace contains the required commit or explicitly delivered contract.
 
 ## Freeze, review, fix, verify, commit
 
-Map project requirements to each acceptance stage using [Stage gates](references/check-evidence.md#stage-gates). Verify the current stage's mandatory gates; retain every later delivery/runtime gate without adding it as an earlier source-commit requirement unless the project requires that ordering.
+Map requirements to [Stage gates](references/check-evidence.md#stage-gates) and use the [verification stopping rule](references/check-evidence.md#accept-and-reuse). For permitted direct execution, the coordinator performs the worker steps.
 
-Use Alibaba `open-code-review-delegate` by default; additional review Skills require explicit user selection. OCR supplies scope and rules, while the assigned reviewer performs the review without an extra OCR model. Worker self-checks do not replace independent review.
+Ordinary changes use execution-owner self-review. Independent review is mandatory for explicit user/project requirements or behavior affecting orders, fees, funding, margin, liquidation, risk controls, data causality, admission, security/permissions, database migration, data loss/recovery or critical concurrency. Inspect uncertain impact; unresolved material safety risk requires independent review. Record the mode/reason in the existing package entry and reassess changed behavior. Keep an independent reviewer separate from the execution owner and planning expert; use one high-risk reviewer instead of adding an ordinary preliminary reviewer. Diff size and execution model do not waive these requirements.
 
-1. **Worker freezes a candidate and runs fast checks.** Pause writes in its scope; record the starting baseline, complete task diff, and file-content hashes including untracked/relevant ignored inputs. Verify actual workdir/HEAD and bind check receipts to the frozen candidate. Distinguish pre-existing user edits. Run fast checks and high-risk focused reproductions first; no advance commit is required. Honor any project requirement for full gates before review.
-2. **Reviewer reviews it.** Run `ocr delegate preview --format json`, then `ocr delegate rule --format json <files...>`. Drop `--format` only if the CLI explicitly rejects that flag. Review the full task delta, necessary callers/tests, and applicable rules for correctness, requirements, safety, load, and needless complexity. Account for every selected file and important exclusion; manually include task-relevant documentation/tests excluded by OCR. Fetching rules is not completing review. Candidate changes invalidate affected conclusions.
-3. **Track and fix findings.** Use stable IDs with location, impact, evidence, expected fix, and closure criteria. The coordinator verifies findings; the original worker fixes them. Close false positives with evidence and escalate unresolved correctness disputes.
-4. **Close review, then run final heavy gates.** Update/freeze the candidate and affected focused checks; the original reviewer verifies fixes and new effects. Expand to changed interfaces/callers where needed. Once review fixes settle, the worker executes every required final full/integration/security gate on those inputs; the reviewer/coordinator verify the final receipts. Gate failures return to repair/recheck; they cannot be waived by this scheduling order. Reuse unaffected valid evidence only where project requirements permit.
-5. **Worker commits accepted work.** The coordinator verifies acceptance before authorizing the commit. Required checks must pass and confirmed issues must be resolved. Ensure the final diff matches reviewed/tested inputs, stage only the package's changes, and record its SHA. Preserve mandatory final-state and integration checks even when earlier evidence is reusable. Ordinary subtask completion does not create a Handoff.
+Use Alibaba `open-code-review-delegate` in either review mode; OCR supplies scope/rules without an extra model. Additional review Skills require explicit user selection. The review owner is the execution owner for ordinary work and the independent reviewer when required.
+
+1. **Freeze and check.** The worker captures the complete candidate under [Check evidence](references/check-evidence.md), distinguishing pre-existing user edits. Run fast checks and high-risk focused reproductions first; no advance commit is needed. Honor project requirements for full gates before review.
+2. **Review.** The review owner runs `ocr delegate preview --format json`, then `ocr delegate rule --format json <files...>`; drop `--format` only if explicitly rejected. Inspect the full task delta, necessary callers/tests and rules for correctness, requirements, safety, load and complexity. Account for selected files and important exclusions, manually including task-relevant documentation/tests. Fetching rules alone is not review.
+3. **Fix and recheck.** Record findings with stable IDs, location, impact, evidence, expected fix and closure criteria. The original worker fixes them; the same review owner checks the new candidate, fixes and affected interfaces/callers. Close false positives with evidence; escalate unresolved correctness or scope disputes.
+4. **Verify and accept.** Once fixes settle, the worker runs all required final gates. Failures return to repair/recheck. The coordinator applies the [acceptance checklist](references/execution-boundaries.md#verification-and-reports) and stopping rule, reusing evidence only where valid and permitted. Mandatory final-state/integration checks remain required.
+5. **Commit when authorized.** After acceptance, the execution owner stages only the package's reviewed/tested changes, commits and records the SHA. Otherwise deliver the accepted diff without committing. There is no separate commit agent.
 
 Missing required tooling or unresolved issues stop that subtask's commit, not unrelated work. Report the gap; do not install tools automatically, downgrade checks, or label existing failures as passed. Commit messages are English, evidence-based, with one sentence per line:
 
@@ -80,24 +78,10 @@ Trade-off: <The chosen approach and its limits>
 Result: <What changed and what verification supports>
 ```
 
-Assign one worker to integrate in dependency order and execute project checks on the integrated result; integration changes follow the same review cycle. Approved deployment, trial, rollback and scoped cleanup remain execution work with explicit coordinator decision checkpoints and the unchanged safety gates. Escalate critical correctness/design questions, a disproved plan, two unsuccessful fix rounds, or repeated failure without new evidence. Reuse the expert for that problem; provide existing findings and failed attempts. Block affected dependencies until acceptance is achievable.
+Assign an integration worker to apply accepted packages in dependency order, check the combined result and assess any new review impact. Escalate a disproved plan, critical correctness/design uncertainty, two unsuccessful fix rounds or repeated failure without new evidence. Reassess cause, scope and execution model; use/reuse an expert for unresolved material questions, preserving valid findings and failed attempts. Keep affected dependencies blocked until acceptance is achievable.
 
-## Read by stage; hand off deliberately
+## Context and handoff
 
-| Stage | Read |
-| --- | --- |
-| Start / takeover | Current plan, required original authorization, state, and actual Git status; also the current Handoff for takeover. |
-| Investigate / implement | Relevant code, callers, tests, configuration, and valid findings; expand along actual dependencies. |
-| Review | Frozen task delta, rules, necessary call paths, and check evidence. |
-| Recheck | Original findings, fixes, and newly affected scope. |
-| Summarize / hand off | Valid conclusions, remaining work, results, and evidence indexes; not all chat history, archives, or logs. |
+Read only the current stage's relevant code, evidence and references; reuse unchanged context. Save long output to logs with its real exit status: show up to 20 lines on success or 80 initially on failure, then inspect relevant errors. Limit the **combined batch**, including agent/chat results, to about 4,000 output tokens. Filter or split before emitting; truncated material is not complete evidence.
 
-Reuse unchanged material already in context. Filter before emitting tool output: return relevant search locations and complete code sections; save long command output to logs with the real exit status. Show up to 20 lines on success or 80 initially on failure, then inspect relevant errors. Default to about 4,000 output tokens for the **combined batch**, including agent/chat results; filter or split before returning large histories. Truncation is not complete evidence and must not hide required scope.
-
-Bind check evidence to actual workdir, inputs, relevant configuration/environment, command, real exit and log. HEAD alone does not identify dirty/untracked inputs or the worktree; use the candidate manifest and [verified check receipts](references/check-evidence.md). Invalidate affected evidence when inputs change, without restarting unrelated work. Never relabel an old failure, wrong-directory result or unrun/interrupted check as passed. Keep one current package entry and persist its evidence before handoff, rather than copying full logs/history into SOL.
-
-Follow the lifecycle reference only for the current stage: [Budget](references/session-lifecycle.md#budget), [Prepare](references/session-lifecycle.md#prepare), [Create](references/session-lifecycle.md#create-a-continuation), [Reconcile](references/session-lifecycle.md#reconcile), [Archive](references/session-lifecycle.md#archive), or [Finish](references/session-lifecycle.md#finish).
-
-At the handoff threshold, stop dispatch and business writes, preserve results, and verify every writer has stopped. Unknown activity cannot be declared stopped. `ready` freezes the old owner's business files, plan, and Handoff; it permits only creation/reconciliation/reporting. A successful create is not a successful takeover. After verified atomic takeover, archive the received snapshot and update the current plan; assign unfinished execution to a worker using valid evidence. Do not assume old agent handles remain usable. Role or stage completion alone does not create another main chat; use the budget/lifecycle rules.
-
-Hooks advise and track state; they neither stop processes nor create chats. Compaction remains a fallback, including recovery of interrupted handoffs. Follow budget-blocked instructions instead of creating repeated continuations. The Skill cannot enlarge model capacity, guarantee no compaction, or prove savings merely by changing models or language.
+Use [Budget](references/session-lifecycle.md#budget) to decide when to hand off; role/stage completion alone does not create a new main chat. At the threshold, stop dispatch/business writes and follow [Prepare](references/session-lifecycle.md#prepare), including verification of stopped writers. [Create](references/session-lifecycle.md#create-a-continuation) and [Reconcile](references/session-lifecycle.md#reconcile) govern the old owner; the successor follows [Take over](references/session-lifecycle.md#take-over) and [Archive](references/session-lifecycle.md#archive). Use [Finish](references/session-lifecycle.md#finish) when completing or leaving the workflow. Hooks only advise/track state; the coordinator performs these actions, with compaction as fallback.

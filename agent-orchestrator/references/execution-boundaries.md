@@ -1,47 +1,43 @@
 # Execution boundaries
 
-Apply this reference when dispatching a work package, accepting its result, resolving a capability gap, or resuming after handoff. Model/effort choices, concurrency and authority remain defined in [SKILL.md](../SKILL.md).
+Read before dispatch, acceptance, capability exceptions or resumed execution. [SKILL.md](../SKILL.md) defines role/model selection, concurrency and review modes; this reference defines the handoff between execution and coordinator decisions.
 
 ## Ownership
 
-The coordinator resolves the goal, permitted scope, shared contracts and acceptance criteria. It assigns an execution owner and independent reviewer, resolves decisions and verifies the evidence that supports acceptance. Plan/session/handoff operations, bounded identity/status checks and decision records belong in the main chat.
+Plan/session/handoff operations, bounded identity/status checks and acceptance/release decisions belong to the coordinator. Routine execution remains with its assigned owner across decision checkpoints.
 
-The worker owns the complete permitted execution: implementation, routine diagnosis and reproduction, fixes, integration, mandatory checks, build, inventory/scanner invocation, artifact preparation, accepted commits, and authorized deployment/trial/rollback/cleanup. Divide a package only for a real ownership, dependency, capability or risk boundary, not each shell command or stage. Small work can use one worker sequentially; adding agents is not an acceptance criterion.
+An execution package includes its permitted diagnosis/reproduction, implementation, fixes, checks, integration, builds/scans, artifact preparation, commits and deployment/trial/rollback/cleanup. Acceptance of a source commit does not end an unfinished release package: retain the worker or explicitly assign a release worker.
 
-The reviewer owns detailed candidate and safety review, finding closure and affected rechecks. Experts resolve material design/diagnostic unknowns. Detailed vulnerability matching or applicability analysis belongs with the qualified expert/reviewer; a worker executes the resulting approved fix or disposition. Existing accepted-risk conditions must be verified, and new risk acceptance beyond current user authority remains a required decision.
+Detailed vulnerability matching/applicability analysis belongs to the qualified expert/reviewer; the execution owner performs the approved fix or disposition. Verify existing accepted-risk conditions; new risk acceptance beyond current authority requires a user decision.
 
 ## Dispatch and checkpoints
 
-Give the worker the outcome and entire permitted remaining sequence, actual workspace/baseline, allowed files/actions, interfaces, accepted findings, user limits, required checks and recovery requirements. State where it must stop for review or coordinator/user decisions. Delegation grants no authority to upgrade dependencies, waive a gate, accept new risk, push, deploy or delete beyond existing verified user instructions.
+Dispatch the package's current plan entry with its actual workspace/baseline, contracts, valid findings/gaps, user limits and recovery requirements. Include the entire permitted remaining sequence and explicit review/decision checkpoints. Delegation adds no authority to upgrade dependencies, waive gates, accept risk, push, deploy or delete.
 
-Require explicit tool workdirs and a verified candidate/check identity before execution or result acceptance; follow [Check evidence](check-evidence.md). For expensive checks, prefer fast/focused validation, independent review closure, then final full gates, unless the project requires an earlier full gate. Required checks, support matrices and security standards remain unchanged.
+Use explicit tool workdirs for commands. For acceptance checks/results, verify frozen inputs and receipts under [Check evidence](check-evidence.md); inspection and editing do not require a frozen candidate.
 
-For a release package, the worker can prepare and verify an exact artifact, invoke the real safety gate, prepare backups and a concrete cleanup allowlist, and pause with those evidence indexes. The coordinator verifies the artifact/target, actual gate and review results, authorization and recovery/cleanup scope before authorizing the next step. The worker then performs the approved deployment/trial and post-acceptance cleanup. A blocked gate prevents release; missing approval prevents dependent execution. Evidence preparation may continue within its authorized scope.
-
-Keep the worker responsible while a fix, checkpoint or authorized subsequent stage remains. After an accepted source commit, reuse it for the remaining package or explicitly assign a release worker. Neither path makes SOL the default release executor.
+For release, the worker prepares the exact artifact, invokes the real safety gate, prepares backups and a cleanup allowlist, then pauses at the specified decision checkpoint with evidence indexes. The coordinator applies the checklist below before the worker performs the approved next step. Failed gates or missing authority block the affected action; permitted evidence preparation may continue.
 
 ## Verification and reports
 
-A result summary identifies the package, changed scope, exact candidate/commit and relevant input hashes, actual required-check results, independent-review status, unresolved issues or requested decision, next permitted step and absolute evidence paths. Detailed code analysis, raw scans, command output and investigation history stay in evidence files or the responsible agent's context. Fetch only the sections needed to verify a decision; a “passed” summary alone is insufficient.
+Return a bounded summary of the decision-relevant fields in the [current package entry](check-evidence.md#keep-one-current-evidence-entry), with absolute evidence indexes. Raw logs, inventories and detailed analysis stay with the responsible agent/evidence files. The coordinator reads original sections needed for its decision; a “passed” summary alone is insufficient. Return missing, stale or contradictory evidence to its owner for correction rather than reconstructing the whole investigation.
 
-Use one current candidate/status entry per package and durable manifest/receipt indexes. Root verification can be small and targeted without reconstructing the worker's complete investigation. A missing, stale or contradictory index goes back to its owner for correction; do not compensate by repeatedly loading whole histories, raw inventories or superseded plans into SOL.
-
-The coordinator independently checks:
+At each required acceptance checkpoint, the coordinator verifies:
 
 - Original user authority, current limits and the exact target/action to authorize.
 - Complete task-diff and artifact identities, including dirty/untracked inputs and relevant configuration.
 - Required commands actually ran on those inputs; success, failures and exceptions match the original logs and current candidate.
-- Required independent review covers the scope, confirmed findings are closed, and any risk acceptance is already authorized or pending.
+- The applicable review covers the scope and confirmed findings are closed; any required risk acceptance is authorized. Pending risk acceptance blocks the affected action.
 - Mandatory integration/final-state gates and, for external changes, backups/rollback and exact cleanup scope are satisfied.
 
-Use relevant source/diff/log inspection and proportionate spot checks; expand when evidence is missing, contradictory, stale or high risk demands it. Send routine re-execution or deeper investigation to the responsible worker/reviewer/expert with the exact gap. Preserve the project's full acceptance/security standard; narrowing what enters SOL's context does not narrow what must be checked.
+Establish these facts through existing verifiers and targeted source/diff/log inspection, then apply the [stopping rule](check-evidence.md#accept-and-reuse). Coordinator acceptance does not add another full review or reproduce the worker's checks.
 
 ## Capability gaps and handoff
 
 Resolve an unavailable worker capability with another authorized executor or supported tool. If none can perform the step, mark that step blocked and preserve evidence; do not silently move an entire package into the main chat. An explicit user instruction or a genuinely coordinator-only operation can justify a narrow direct execution exception. Record why, the exact scope and unchanged acceptance/security checks; return subsequent execution to the worker. This exception grants no additional authority or model substitution.
 
-Record verified conditional model fallbacks, scoped gate exceptions and privacy limits with their original user source, exact scope/conditions and current status. Reuse unchanged approvals across handoffs; repeated capacity failures alone grant no model substitution. A Core-only exception does not cover UI or new risks. Apply candidate-specific limits only when the original user imposed them; do not invent reapproval requirements for fixes within unchanged scope/conditions. Preserve actual pending decisions and later human replies with their source rather than treating a stale Handoff's pending label as current authority.
+Record conditional model fallbacks, gate exceptions and privacy limits with the original user source, scope/conditions and current status. Reuse valid approvals across handoffs and fixes within that scope; an exception for one component does not cover another or new risks. Capacity failures do not authorize model substitution. Reconcile pending decisions against later human replies instead of trusting stale Handoff labels.
 
-Within existing authority, workers collect bounded counts/error codes and reproduce confirmed failures using available diagnostic tools. Protect private content and user data. Reserve user requests for steps the human actually must complete (such as an OS prompt or new credential entry), unresolved unsaved-data risk or product changes requiring explicit approval; do not repeatedly ask the user to reconfirm an already established symptom.
+Within existing authority, use available diagnostics to reproduce confirmed symptoms, protecting private content and unsaved data. Ask the user only for human-only steps, unresolved data risk or new scope/product decisions requiring approval; established symptoms do not need repeated confirmation.
 
-Handoff records the unfinished package, its decision/checkpoint status, last accepted candidate/evidence, stopped writers and the next authorized execution step. The successor verifies ownership, authority and native startup budget, then assigns only the unfinished execution to a worker. Reuse valid evidence instead of rediscovering or replaying completed stages. Coordinator/worker/reviewer changes and completed stages do not themselves require a new main chat.
+After [takeover](session-lifecycle.md#take-over), assign the unfinished sequence using the verified package entry and its valid evidence; continue from the recorded checkpoint rather than replaying completed stages.

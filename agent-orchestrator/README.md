@@ -1,6 +1,6 @@
 # agent-orchestrator
 
-A Codex Skill for scoped multi-model work, independent review, evidence reuse, and resumable handoff. Execution rules are in [SKILL.md](SKILL.md); commands and recovery are in [session-lifecycle.md](references/session-lifecycle.md). Responses follow the user's language.
+A Codex Skill for scoped multi-model work, risk-based review, evidence reuse, and resumable handoff. Execution rules are in [SKILL.md](SKILL.md); commands and recovery are in [session-lifecycle.md](references/session-lifecycle.md). Responses follow the user's language.
 
 ## Requirements
 
@@ -8,13 +8,7 @@ A Codex Skill for scoped multi-model work, independent review, evidence reuse, a
 - Alibaba `open-code-review-delegate` and the `ocr delegate` CLI. No separate OCR model configuration is needed. Additional review Skills are optional, used only when explicitly requested.
 - For automatic continuation, a client with `create_thread` and access to the same saved local project. Pure CLI use does not gain these client tools from this Skill.
 
-Default roles and concurrency limits have one authoritative definition in [the Skill](SKILL.md#roles-and-authority). Review scope, frozen candidates, incremental rechecks, and required final checks also live there. Handoff creation and takeover are distinct; automatic continuation always requires valid original user authority.
-
-SOL coordinates, verifies critical evidence and makes acceptance/release decisions. Workers own complete execution work packages through authorized follow-through; reviewers retain independent detailed and safety review. [Execution boundaries](references/execution-boundaries.md) defines dispatch, reports, checkpoints and capability exceptions without weakening project gates.
-
-[Check evidence](references/check-evidence.md) binds actual workdirs, frozen tracked/untracked inputs and command/log receipts. Fast/focused checks and review closure precede final heavy gates where project rules permit; all final acceptance/security checks remain required. Keep one current package state, durable evidence indexes and scoped original approval/fallback conditions across handoffs.
-
-Map source, integration, deployment and live acceptance gates to their actual project stages. Creation preflight rejections have one evidence-backed retry; uncertain outcomes still require reconciliation. Native-budget failures retain a diagnostic reason and last verified history without treating it as current capacity. See the lifecycle reference for attempt IDs, verified matching client defaults and unchanged ownership/budget safeguards.
+Execution policy has one entrypoint: [SKILL.md](SKILL.md). It routes to [execution boundaries](references/execution-boundaries.md) for delegation/acceptance, [check evidence](references/check-evidence.md) for frozen inputs and verification stopping, and [session lifecycle](references/session-lifecycle.md) for authorization, budgets and handoff. This README covers setup and maintenance.
 
 ## Validate the source
 
@@ -77,7 +71,7 @@ python3 "$task_skill_dir/scripts/session_hook.py" status --root "/absolute/proje
 
 `agent-orchestrator.config.toml` is an optional CLI profile, not a hook installer or automatic Skill invocation. Copy it to `$CODEX_HOME/agent-orchestrator.config.toml` (default `~/.codex/agent-orchestrator.config.toml`) and select it with `codex --profile agent-orchestrator` if wanted. Installation alone does not load it.
 
-The native log supplies this chat's effective window, loaded `Total` compaction limit and actual context counter. API `last_token_usage` and cumulative usage count different things. The hook reads `logs_2.sqlite` beside the rollout's `sessions` directory without modifying it; missing/stale/incompatible telemetry is explicitly unverified. Configured maxima and another process's settings are not capacity evidence. Formula, the verified 419K/780K incident, startup checks and loop protection are defined in [Budget](references/session-lifecycle.md#budget).
+Configured maxima and API usage counters do not prove this chat's remaining context. [Budget](references/session-lifecycle.md#budget) defines native telemetry, thresholds, startup checks and loop protection.
 
 ## Files and maintenance
 
@@ -96,4 +90,4 @@ The native log supplies this chat's effective window, loaded `Total` compaction 
 
 Before deployment, compare source and installed files and preserve the current baseline, including uncommitted user changes. For rollback, restore only the intended files; first resolve active handoffs and startup-budget guards as described in [Compatibility](references/session-lifecycle.md#compatibility-and-rollback). Do not overwrite state with an older snapshot or remove creation records.
 
-Compaction remains a fallback. The coordinator performs writer verification, archiving, and client operations; hooks cannot guarantee these. Logs and client capabilities can change. Script tests do not prove native cross-chat operation, and shorter instructions or cheaper models do not by themselves prove lower subscription usage.
+Script/scenario tests do not prove native cross-chat operation or lower subscription usage. The Skill cannot enlarge model capacity or guarantee no compaction.
