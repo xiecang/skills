@@ -32,6 +32,6 @@ At a real acceptance boundary, inspect only what the decision still needs:
 
 Reuse established evidence. Coordinator acceptance is a decision, not another full review or a newly hashed certificate. Missing or contradictory evidence returns to its owner for a targeted correction; do not reconstruct the entire investigation. A new index, log name or unchanged artifact copy does not invalidate source review. A changed target, configuration or behavior does require the checks that change affects.
 
-## Continuation
+## Recovery
 
-After takeover, use the current package entry and the original authority source to assign only unfinished work. Reuse still-valid approvals within their exact conditions; do not reopen them because the chat changed. One component's exception does not cover another or a new risk. Preserve privacy limits and ask only for human-only actions, genuinely missing authority or decisions requiring the user.
+After compaction or interruption, use the current task record and original authority source to continue only unfinished work in the same main chat. Reuse still-valid approvals within their exact conditions; do not reopen them because the chat changed. One component's exception does not cover another or a new risk. Preserve privacy limits and ask only for human-only actions, genuinely missing authority or decisions requiring the user.

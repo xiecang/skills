@@ -50,6 +50,8 @@ Verify pre-commit receipts before HEAD changes, then record the accepted candida
 
 Do not run daemonizing checks through this helper. It stops its owned process group on interruption; a remaining/unknown group or descendants outliving the leader invalidates the receipt. Verify other writers stopped before ownership release. Interrupted checks never count as passes.
 
-## Handoff
+## Recovery and cleanup
 
-Persist required continuity evidence outside volatile temporary storage. Carry only the current package state, unresolved issue, next executable action and links to needed evidence. Preserve received/archived snapshots; resolve a material candidate/result conflict in the active plan without rewriting history. Transport digests protect the received handoff, not every later note or business decision.
+Persist evidence needed to continue the task outside volatile temporary storage. Keep the current result, unresolved issue, next action and links to needed evidence in the existing task record. Resolve a material candidate/result conflict using original evidence, not competing prose summaries. Reuse valid checks after compaction; no new manifest or review is required just to restore context.
+
+Keep active inputs and required recovery evidence while they are still needed. Clean up task-generated records only when authorized and no active work depends on them; preserve unrelated user files, project indexes and business artifacts. A user-requested handoff can summarize this same state without creating another lifecycle or approval mechanism.

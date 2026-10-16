@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_FILES = ("SKILL.md", "references/execution-boundaries.md",
-                "references/session-lifecycle.md", "references/check-evidence.md",
+                "references/check-evidence.md",
                 "tests/role_scenarios.json")
 
 
@@ -138,9 +138,9 @@ class RoleContractTests(unittest.TestCase):
         self.assertIn("current_candidate_checks", result["needed_evidence"])
         self.assertIn("current_candidate_review", result["needed_evidence"])
 
-    def test_successor_reuses_valid_evidence_and_assigns_fresh_execution_context(self):
+    def test_recovery_reuses_valid_evidence_and_assigns_fresh_execution_context(self):
         result = self.answer("resume", {
-            **{step: "coordinator" for step in ("archive_handoff", "maintain_plan", "verify_candidate", "decide_release")},
+            **{step: "coordinator" for step in ("read_current_state", "maintain_plan", "verify_candidate", "decide_release")},
             **{step: "worker" for step in ("invoke_gate", "deploy", "trial", "cleanup")}})
         self.assertIs(result["replay_valid_completed_steps"], False)
         self.assertEqual(result["worker_context"], "fresh_scoped_evidence")
@@ -195,7 +195,7 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["can_claim_interrupted_check_passed"], False)
         self.assertIs(result["must_run_final_required_gates"], True)
         self.assertIs(result["finish_or_interrupt_owned_check_before_release"], True)
-        self.assertIs(result["start_new_heavy_gate_before_handoff"], False)
+        self.assertIs(result["interrupt_for_context_threshold"], False)
 
     def test_stale_current_status_needs_reconciliation_and_persistent_evidence(self):
         result = self.answer("conflicting_state", {"reconcile_evidence": {"worker", "coordinator"},
@@ -225,25 +225,7 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["retain_required_evidence"], True)
 
 
-    def test_definite_preflight_rejection_has_one_evidenced_retry_and_runtime_verification(self):
-        result = self.answer("preflight_retry", {
-            **{action: "coordinator" for action in ("verify_authority_and_reconcile", "resolve_capability",
-               "record_retry_evidence", "acquire_retry_permit", "verify_successor_runtime")},
-            "continue_business_execution": "worker"})
-        self.assertIs(result["allow_retry"], True)
-        self.assertIs(type(result["additional_attempt_limit"]), int)
-        self.assertEqual(result["additional_attempt_limit"], 1)
-        self.assertIs(result["preserve_attempt_receipts"], True)
-        self.assertIs(result["use_verified_matching_client_defaults"], True)
-        self.assertIs(result["verify_actual_successor_runtime"], True)
-        self.assertIs(result["silently_change_model_or_effort"], False)
 
-    def test_unknown_creation_remains_reconciliation_only_after_renewed_user_instruction(self):
-        result = self.answer("unknown_retry", {action: "coordinator" for action in
-            ("reconcile_existing_creation", "preserve_ready_state", "decide_manual_resolution")})
-        self.assertIs(result["allow_retry"], False)
-        self.assertIs(result["renewed_instruction_proves_noncreation"], False)
-        self.assertIs(result["reset_ready_or_attempt_history"], False)
 
     def test_stage_mapping_keeps_source_and_delivery_requirements_at_their_required_checkpoints(self):
         result = self.answer("stage_gate_scope", {"verify_stage_mapping": "coordinator",
@@ -254,15 +236,6 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["retain_future_delivery_gates"], True)
         self.assertIs(result["repeat_full_unchanged_source_review"], False)
 
-    def test_stale_budget_does_not_block_work_or_authorize_automatic_creation(self):
-        result = self.answer("unverified_budget_history", {"diagnose_and_refresh_budget": "coordinator",
-            "decide_new_dispatch": "coordinator", "preserve_owned_execution": "worker"})
-        self.assertIs(result["suspend_new_dispatch"], False)
-        self.assertIs(result["allow_automatic_creation"], False)
-        self.assertIs(result["use_history_as_current_capacity"], False)
-        self.assertIs(result["preserve_last_verified_history"], True)
-        self.assertIs(result["relax_native_freshness_checks"], False)
-        self.assertIs(result["repeat_manual_budget_check"], False)
 
     def test_complete_acceptance_advances_without_repeated_verification(self):
         result = self.answer("verification_stop", {
@@ -282,12 +255,6 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["retain_future_delivery_gates"], True)
         self.assertIs(result["can_deliver_now"], False)
 
-    def test_current_trusted_hook_needs_no_duplicate_budget_poll(self):
-        result = self.answer("current_hook_budget", {
-            "decide_budget_refresh": "coordinator", "continue_owned_checks": "worker"})
-        self.assertIs(result["repeat_manual_budget_check"], False)
-        self.assertIs(result["suspend_new_dispatch"], False)
-        self.assertIs(result["relax_native_freshness_checks"], False)
 
     def test_unchanged_authorized_retry_reuses_runner_without_internal_signoff(self):
         result = self.answer("unchanged_release_retry", {
@@ -329,6 +296,23 @@ class RoleContractTests(unittest.TestCase):
         self.assertIs(result["create_coordinator_gate"], False)
         self.assertIs(result["continue_independent_work"], True)
         self.assertIs(result["preserve_attempt_receipts"], True)
+
+    def test_long_task_continues_in_same_chat_without_budget_controller(self):
+        result = self.answer("same_chat", {
+            "restore_task_state": "coordinator", "continue_checks": "worker"})
+        self.assertIs(result["create_continuation_chat"], False)
+        self.assertIs(result["query_internal_budget"], False)
+        self.assertIs(result["interrupt_owned_check"], False)
+        self.assertIs(result["reuse_valid_results"], True)
+        self.assertIs(result["force_coordinator_model_change"], False)
+
+    def test_progress_tracking_uses_existing_host_without_provider_binding(self):
+        result = self.answer("host_progress", {
+            "update_current_record": "coordinator", "report_worker_result": "worker"})
+        self.assertIs(result["require_named_memory_provider"], False)
+        self.assertIs(result["duplicate_file_tracker"], False)
+        self.assertIs(result["register_global_session_owner"], False)
+        self.assertIs(result["one_writer_per_task_record"], True)
 
 
 class RoleGraderValidationTests(unittest.TestCase):

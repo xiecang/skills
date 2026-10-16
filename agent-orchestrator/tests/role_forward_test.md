@@ -1,10 +1,10 @@
 # Independent role forward-test
 
-Give an independent agent the current `SKILL.md`, `references/execution-boundaries.md`, `references/session-lifecycle.md` and `tests/role_scenarios.json`. Ask it to answer every scenario from those inputs, without reading `test_role_contract.py` or its expected decisions. This is a plan-only maintenance exercise: no real dispatch, session registration, deployment, cleanup or source/configuration writes. Save answers only in a temporary directory.
+Give an independent agent the current `SKILL.md`, `references/execution-boundaries.md` and `tests/role_scenarios.json`. Ask it to answer every scenario from those inputs, without reading `test_role_contract.py` or its expected decisions. This is a plan-only maintenance exercise: no real dispatch, deployment, cleanup or source/configuration writes. Save answers only in a temporary directory.
 
 Return a JSON object with `policy_sha256` and `responses`. `responses` maps each scenario ID to exactly one answer; its `owners` object maps every listed action to `coordinator`, `worker`, `expert` or `reviewer`. Include a nonempty `rationale` explaining the independent judgment.
 
-Compute `policy_sha256` by updating one SHA-256 with each relative filename, a NUL byte, and the raw file bytes, in this order: `SKILL.md`, `references/execution-boundaries.md`, `references/session-lifecycle.md`, `references/check-evidence.md`, `tests/role_scenarios.json`. Read the check-evidence reference too. This binds answers to their actual policy/scenario inputs.
+Compute `policy_sha256` by updating one SHA-256 with each relative filename, a NUL byte, and the raw file bytes, in this order: `SKILL.md`, `references/execution-boundaries.md`, `references/check-evidence.md`, `tests/role_scenarios.json`. Read the check-evidence reference too. This binds answers to their actual policy/scenario inputs.
 
 Common answer fields:
 
@@ -30,10 +30,12 @@ Additional evidence/scheduling scenarios use these typed fields:
 - `canonical_state_action`: `replace_stale_entry_from_verified_manifest`, `append_another_current_status` or `trust_latest_prose`.
 - `main_context_payload`: `bounded_indexed_summary`, `all_raw_history` or `summary_without_evidence`.
 
-Recovery/stage/budget cases also use Boolean flags `allow_retry`, `preserve_attempt_receipts`, `use_verified_matching_client_defaults`, `verify_actual_successor_runtime`, `silently_change_model_or_effort`, `renewed_instruction_proves_noncreation`, `reset_ready_or_attempt_history`, `can_accept_source`, `can_deliver_now`, `retain_future_delivery_gates`, `repeat_full_unchanged_source_review`, `suspend_new_dispatch`, `allow_automatic_creation`, `use_history_as_current_capacity`, `preserve_last_verified_history`, `relax_native_freshness_checks`. `additional_attempt_limit` is an integer for additional creation attempts. Apply fields only to relevant scenarios.
+Recovery/stage cases use Boolean flags `allow_retry`, `preserve_attempt_receipts`, `can_accept_source`, `can_deliver_now`, `retain_future_delivery_gates`, `repeat_full_unchanged_source_review` and `allow_automatic_creation`. Apply fields only to relevant scenarios.
 
-Verification/scheduling cases also use Boolean flags `verification_complete`, `additional_verification_needed`, `extra_gate_blocks_source`, `repeat_manual_budget_check`, `start_new_heavy_gate_before_handoff`.
+Verification/scheduling cases also use Boolean flags `verification_complete`, `additional_verification_needed`, `extra_gate_blocks_source`, `interrupt_for_context_threshold`.
 
 Execution-overhead cases use Boolean flags `reuse_reviewed_runner`, `repeat_incremental_review`, `create_coordinator_gate`, `must_check_target_and_authority`, `ocr_required`, `new_acceptance_certificate`, `needs_worker`, `needs_integration_worker`, `block_for_plan_collision`, `overwrite_other_task_state`, `requires_user_exception`, `continue_independent_work`. Apply only the fields relevant to each case; derive their values from the policy and supplied facts.
 
 Use actual JSON booleans for all decision flags, not nulls, numbers, strings or arrays. Choose values independently; the format does not supply an intended decision. Run the behavioral grader with `ORCHESTRATOR_ROLE_RESPONSES` pointing to that file. Report any failures or ambiguities; missing or stale responses cannot count as completed role validation. These cases test planning decisions, not native tool execution or production safety results.
+
+Same-chat and host-progress scenarios also use Boolean flags `create_continuation_chat`, `query_internal_budget`, `interrupt_owned_check`, `reuse_valid_results`, `force_coordinator_model_change`, `require_named_memory_provider`, `duplicate_file_tracker`, `register_global_session_owner` and `one_writer_per_task_record`.

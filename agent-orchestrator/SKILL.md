@@ -1,23 +1,23 @@
 ---
 name: agent-orchestrator
-description: 按实际收益安排多模型协作，连续执行已授权工作，按行为风险审阅，并在需要时交接长任务。适用于多模型协作或有独立交付边界的并行任务；讨论或维护本 Skill 不启动业务编排。
+description: 按实际收益安排多模型协作，在当前主聊天中连续执行已授权工作，按依赖并行、按行为风险审阅。适用于多模型协作或有独立交付边界的并行任务；讨论或维护本 Skill 不启动业务编排。
 ---
 
 # Agent Orchestrator
 
-Finish the authorized outcome with the fewest useful handoffs. Respond in the user's language. Discussing or maintaining this Skill does not register a business session or start its development workflow.
+Finish the authorized outcome in the current main chat with minimal coordination overhead. Respond in the user's language. Discussing or maintaining this Skill does not start its business workflow.
 
 ## Choose execution ownership
 
-| Role | Default model / effort | Use when |
+| Role | Suggested model / effort | Use when |
 | --- | --- | --- |
-| Coordinator | `gpt-6.1-sol` / `xhigh` | Own the goal, authority, dependencies and decisions; may also execute. |
+| Coordinator | Current chat settings | Own the goal, authority, dependencies and decisions; may also execute. |
 | Worker | `gpt-6.1-sol` / `high` | A substantial execution package benefits from scoped context or independent parallel progress. |
 | Mechanical worker | `gpt-6-luna` / `high` | Scope, approach and decisive checks are known, without unresolved design or cross-module invariants. |
 | Expert | `gpt-6-astra` / `xhigh` | One material unknown exceeds the execution owner's scope. |
 | Independent reviewer | `gpt-6-luna` / `high`; high risk: `gpt-6-astra` / `xhigh` | Required by the review policy below. |
 
-Use verified original user choices, then explicit role configuration, then these defaults, within tool constraints. Do not silently substitute unavailable models or treat client defaults/agent summaries as user overrides. Verify model choices at assignment or takeover, not before each routine command.
+Honor explicit user model/effort choices and tool constraints. Otherwise use role configuration or the suggestions above, choosing an available model suited to the work. Keep the main chat's existing settings; do not require a model switch or a fixed reasoning effort to coordinate. Resolve unavailable explicit choices without silently substituting them. Model selection is an assignment decision, not a gate before routine commands.
 
 Direct execution is the default when the coordinator already has enough context and a worker would mainly add relay overhead. It is not limited to tiny edits. Delegate for a concrete benefit: independent parallel work, substantial context isolation or relevant expertise. Invoking this Skill does not require filling every role. Keep diagnosis, implementation, checks, fixes and authorized delivery with one owner; neither a stage change nor a commit creates a new assignment. Use an integration worker only when separately produced changes actually need integration, normally retaining an existing owner.
 
@@ -29,13 +29,13 @@ Inspect relevant code, callers, tests and configuration. Validate assumptions th
 
 Define packages by independently acceptable outcomes or real ownership/interface boundaries. Use a short current entry: outcome/scope, owner/workspace, dependencies, required checks, current result and next action. Add recovery details for actions that need them. Separate actual user/project requirements from agent suggestions; earlier checklists do not become requirements by repetition.
 
-For a multi-stage task, maintain one current plan, normally `.codegraph/plan.md`; a small direct task needs no new plan/evidence hierarchy. Update at meaningful milestones, changed decisions or blockers, not after every command. If another task owns that path or the session marker, leave it untouched and use a task-specific plan in permitted scratch space. A metadata collision alone does not block independent work; actual overlapping writes/resources still require serialization or isolation. [Lifecycle startup](references/session-lifecycle.md#start) describes when registration is useful and what to do if it is unavailable.
+Use the host's task mechanism or the project's existing progress record when a task needs durable state. Keep one current record with the goal/constraints, completed work, active owner/step, blocker, next action and necessary evidence references; do not mandate a provider or file location. Update on meaningful changes, not every command. Small direct tasks need no new tracking files or session registration. If a record belongs to another task, preserve it and choose a separate task-scoped record; actual overlapping writes/resources still require serialization or isolation. One owner updates each shared task record; other agents report results instead of overwriting it.
 
 ## Schedule for progress
 
 - Default to at most **2 concurrent subagents**; allow **3** for independent work in isolated workspaces without resource contention. Respect a lower runtime limit; experts/reviewers count, unknown activity occupies a slot.
 - Parallel implementation uses isolated workspaces; otherwise serialize conflicting writes. Include locks, databases, test environments and Git staging in the overlap check. Do not dispatch blocked work or make an independent deliverable wait for an unrelated blocker.
-- Give new packages fresh scoped context (`fork_turns: none` when supported), including authority, workspace/baseline, relevant contracts, valid findings and the entire remaining sequence. Retain the worker and required reviewer through fixes. After handoff, replace unavailable handles using the saved current entry, not the full chat history.
+- Give new packages fresh scoped context (`fork_turns: none` when supported), including authority, workspace/baseline, relevant contracts, valid findings and the entire remaining sequence. Retain the worker and required reviewer through fixes. After interruption, replace unavailable handles using the saved current entry, not the full chat history.
 - Start a reviewer when there is a reviewable candidate or a specific early risk question. Do not keep extra agents polling for unfinished work. Use bounded waits and milestone/failure reports; do not repeatedly ask for unchanged status.
 
 ## Review changed behavior, then continue
@@ -62,10 +62,12 @@ Result: <What changed and what verification supports>
 
 Escalate a disproved plan, material correctness uncertainty or repeated failed fixes without new evidence. Reassess the cause and execution model, reusing valid findings. Missing evidence blocks only its dependent action; do not turn one deployment/monitoring failure into a task-wide stop.
 
-## Keep context and handoff small
+## Keep context small and recover in place
 
 Return bounded results: outcome, changed scope, checks/review, unresolved issues and next action, with pointers to original evidence. Save long logs with real exit status; show up to 20 lines on success or 80 initially on failure. Keep a combined output batch near 4,000 tokens, filtering before emission. A truncated result is not complete evidence.
 
-For long tasks needing automatic continuation, use [session lifecycle](references/session-lifecycle.md). Native budget telemetry guides scheduling; missing/stale telemetry is not a business-execution gate and must not create a polling loop. Automatic chat creation still needs verified capacity and valid authority. Honor confirmed handoff/ownership states, stop writers before releasing ownership, and keep original creation/retry history intact.
+Keep related work in the same main chat. Do not automatically create a continuation chat, register a session owner, inspect internal token databases, or prescribe context-window/compaction thresholds. Let the host manage compaction. An approaching context limit alone is not a reason to interrupt an owned check or rebuild the workflow.
 
-Handoff carries current state and the next executable action, with links to original authority and necessary evidence; it does not embed the proof history. A new chat, role change, receipt path or desire for reassurance does not reopen accepted work. Preserve automatic continuation where authorized, with native compaction/manual handoff as fallback; no promise of zero compaction.
+After compaction or interruption, read the current task record and only the relevant source/evidence; preserve valid decisions, approvals and completed checks. Continue with the existing owner when its handle is usable, or assign the unfinished work with scoped context. A summary is a recovery aid, not fresh proof of a live target's state. Record unknown side effects as unknown and reconcile before any authorized retry.
+
+Create a new main chat or a manual handoff only when the user explicitly requests it. Do not infer that request from task length, stage completion or missing telemetry. No runtime hooks, global ownership marker or separate lifecycle controller is required by this Skill.

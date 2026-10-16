@@ -1,9 +1,0 @@
-# Optional CLI profile: ~/.codex/agent-orchestrator.config.toml
-# Hook registration is separate; this profile does not enable a skill session.
-model = "gpt-6.1-sol"
-model_reasoning_effort = "xhigh"
-model_context_window = 872_000
-model_auto_compact_token_limit = 780_000
-model_auto_compact_token_limit_scope = "total"
-
-# Recheck inherited window overrides when selecting other models or subagent roles.
